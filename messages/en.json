@@ -1,0 +1,34 @@
+{
+  "common": {
+    "appName": "GR Lawyer Assistant System",
+    "language": "Language",
+    "login": "Login",
+    "logout": "Logout",
+    "register": "Register"
+  },
+  "home": {
+    "title": "Welcome to GR Lawyer Assistant",
+    "subtitle": "AI-powered legal assistance platform for efficient case management",
+    "getStarted": "Get Started",
+    "learnMore": "Learn More",
+    "features": {
+      "title": "Our Features",
+      "caseManagement": "Case Management",
+      "caseManagementDesc": "Organize and track all your legal cases in one place",
+      "documentProcessing": "Document Processing",
+      "documentProcessingDesc": "AI-powered document analysis and generation",
+      "aiAssistant": "AI Legal Assistant",
+      "aiAssistantDesc": "Get intelligent legal research and case analysis support"
+    }
+  },
+  "auth": {
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "signIn": "Sign In",
+    "signUp": "Sign Up",
+    "forgotPassword": "Forgot Password?",
+    "noAccount": "Don't have an account?",
+    "haveAccount": "Already have an account?"
+  }
+}

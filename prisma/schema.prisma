@@ -1,0 +1,190 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for authentication
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String
+  role          UserRole  @default(LAWYER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  cases         Case[]
+  documents     Document[]
+  tasks         Task[]
+  notes         Note[]
+  conversations AIConversation[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  LAWYER
+  PARALEGAL
+  CLIENT
+}
+
+// Client model
+model Client {
+  id          String   @id @default(cuid())
+  firstName   String
+  lastName    String
+  email       String   @unique
+  phone       String?
+  address     String?
+  dateOfBirth DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cases       Case[]
+
+  @@map("clients")
+}
+
+// Case model
+model Case {
+  id            String     @id @default(cuid())
+  caseNumber    String     @unique
+  title         String
+  description   String?
+  status        CaseStatus @default(OPEN)
+  priority      Priority   @default(MEDIUM)
+  caseType      String
+  startDate     DateTime   @default(now())
+  endDate       DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  clientId      String
+  client        Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  assignedToId  String
+  assignedTo    User       @relation(fields: [assignedToId], references: [id])
+
+  documents     Document[]
+  tasks         Task[]
+  notes         Note[]
+  conversations AIConversation[]
+
+  @@map("cases")
+}
+
+enum CaseStatus {
+  OPEN
+  IN_PROGRESS
+  PENDING
+  CLOSED
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// Document model
+model Document {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  fileUrl     String
+  fileType    String
+  fileSize    Int
+  category    DocumentCategory
+  uploadedAt  DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  caseId      String?
+  case        Case?        @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  uploadedById String
+  uploadedBy   User        @relation(fields: [uploadedById], references: [id])
+
+  @@map("documents")
+}
+
+enum DocumentCategory {
+  CONTRACT
+  EVIDENCE
+  PLEADING
+  CORRESPONDENCE
+  RESEARCH
+  OTHER
+}
+
+// Task model
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  priority    Priority   @default(MEDIUM)
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  caseId      String?
+  case        Case?      @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  assignedToId String
+  assignedTo   User      @relation(fields: [assignedToId], references: [id])
+
+  @@map("tasks")
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// Note model
+model Note {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  caseId    String?
+  case      Case?    @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@map("notes")
+}
+
+// AI Conversation model
+model AIConversation {
+  id        String   @id @default(cuid())
+  title     String
+  messages  Json     // Store conversation messages as JSON
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  caseId    String?
+  case      Case?    @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("ai_conversations")
+}
