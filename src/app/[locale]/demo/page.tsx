@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useLocale } from 'next-intl';
 
@@ -16,46 +16,54 @@ type Case = {
   dueDate: string;
 };
 
+const STORAGE_KEYS = {
+  CASES: 'demo_cases',
+  DOCUMENTS: 'demo_documents',
+  RECORDINGS: 'demo_recordings',
+};
+
+const DEFAULT_CASES: Case[] = [
+  {
+    id: 1,
+    caseNumber: 'CASE-2025-001',
+    title: 'Smith vs. ABC Corporation',
+    status: 'In Progress',
+    priority: 'High',
+    client: 'John Smith',
+    description: 'Employment discrimination case involving wrongful termination.',
+    nextAction: 'Prepare discovery documents',
+    dueDate: '2025-01-15',
+  },
+  {
+    id: 2,
+    caseNumber: 'CASE-2025-002',
+    title: 'Estate of Johnson',
+    status: 'Open',
+    priority: 'Medium',
+    client: 'Mary Johnson',
+    description: 'Estate planning and will preparation.',
+    nextAction: 'Schedule client meeting',
+    dueDate: '2025-01-20',
+  },
+  {
+    id: 3,
+    caseNumber: 'CASE-2024-089',
+    title: 'Tech Startup LLC Formation',
+    status: 'Closed',
+    priority: 'Low',
+    client: 'Innovation Labs Inc.',
+    description: 'Business formation and contract review.',
+    nextAction: 'N/A',
+    dueDate: 'Completed',
+  },
+];
+
 export default function DemoPage() {
   const locale = useLocale();
   const [selectedCase, setSelectedCase] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'cases' | 'documents' | 'ai' | 'interview'>('cases');
   const [showNewCaseModal, setShowNewCaseModal] = useState(false);
-  const [cases, setCases] = useState<Case[]>([
-    {
-      id: 1,
-      caseNumber: 'CASE-2025-001',
-      title: 'Smith vs. ABC Corporation',
-      status: 'In Progress',
-      priority: 'High',
-      client: 'John Smith',
-      description: 'Employment discrimination case involving wrongful termination.',
-      nextAction: 'Prepare discovery documents',
-      dueDate: '2025-01-15',
-    },
-    {
-      id: 2,
-      caseNumber: 'CASE-2025-002',
-      title: 'Estate of Johnson',
-      status: 'Open',
-      priority: 'Medium',
-      client: 'Mary Johnson',
-      description: 'Estate planning and will preparation.',
-      nextAction: 'Schedule client meeting',
-      dueDate: '2025-01-20',
-    },
-    {
-      id: 3,
-      caseNumber: 'CASE-2024-089',
-      title: 'Tech Startup LLC Formation',
-      status: 'Closed',
-      priority: 'Low',
-      client: 'Innovation Labs Inc.',
-      description: 'Business formation and contract review.',
-      nextAction: 'N/A',
-      dueDate: 'Completed',
-    },
-  ]);
+  const [cases, setCases] = useState<Case[]>([]);
 
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -65,6 +73,7 @@ export default function DemoPage() {
   const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [audioLevel, setAudioLevel] = useState(0);
   const [currentSpeaker, setCurrentSpeaker] = useState<'lawyer' | 'client' | null>(null);
+  const [savedRecordings, setSavedRecordings] = useState<Array<{id: string, name: string, data: string, date: string}>>([]);
 
   // Demo user
   const demoUser = {
@@ -72,11 +81,69 @@ export default function DemoPage() {
     role: 'Lawyer',
   };
 
-  const demoDocuments = [
+  const [demoDocuments, setDemoDocuments] = useState([
     { id: 1, name: 'Employment Contract.pdf', type: 'Contract', size: '245 KB', date: '2024-12-15' },
     { id: 2, name: 'Complaint Filing.docx', type: 'Pleading', size: '128 KB', date: '2024-12-20' },
     { id: 3, name: 'Evidence Photos.zip', type: 'Evidence', size: '2.4 MB', date: '2025-01-03' },
-  ];
+  ]);
+
+  // Load data from localStorage on mount
+  useEffect(() => {
+    console.log('Loading data from localStorage...');
+
+    const loadedCases = localStorage.getItem(STORAGE_KEYS.CASES);
+    const loadedDocs = localStorage.getItem(STORAGE_KEYS.DOCUMENTS);
+    const loadedRecordings = localStorage.getItem(STORAGE_KEYS.RECORDINGS);
+
+    if (loadedCases) {
+      const parsedCases = JSON.parse(loadedCases);
+      console.log('Loaded cases from localStorage:', parsedCases.length);
+      setCases(parsedCases);
+    } else {
+      console.log('No saved cases, using defaults');
+      setCases(DEFAULT_CASES);
+    }
+
+    if (loadedDocs) {
+      const parsedDocs = JSON.parse(loadedDocs);
+      console.log('Loaded documents from localStorage:', parsedDocs.length);
+      setDemoDocuments(parsedDocs);
+    } else {
+      console.log('No saved documents');
+    }
+
+    if (loadedRecordings) {
+      const parsedRecordings = JSON.parse(loadedRecordings);
+      console.log('Loaded recordings from localStorage:', parsedRecordings.length);
+      setSavedRecordings(parsedRecordings);
+    } else {
+      console.log('No saved recordings');
+    }
+  }, []);
+
+  // Save cases to localStorage whenever they change
+  useEffect(() => {
+    if (cases.length > 0) {
+      localStorage.setItem(STORAGE_KEYS.CASES, JSON.stringify(cases));
+    }
+  }, [cases]);
+
+  // Save documents to localStorage whenever they change
+  useEffect(() => {
+    if (demoDocuments.length > 0) {
+      localStorage.setItem(STORAGE_KEYS.DOCUMENTS, JSON.stringify(demoDocuments));
+    }
+  }, [demoDocuments]);
+
+  // Save recordings to localStorage whenever they change (backup to setState save)
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.RECORDINGS, JSON.stringify(savedRecordings));
+      console.log('useEffect: Synced recordings to localStorage, count:', savedRecordings.length);
+    } catch (error) {
+      console.error('useEffect: Failed to save recordings to localStorage:', error);
+    }
+  }, [savedRecordings]);
 
   const aiConversation = [
     {
@@ -110,8 +177,66 @@ export default function DemoPage() {
     setSelectedCase(newCase.id);
   };
 
+  const playRecordingAnnouncement = (): Promise<void> => {
+    return new Promise((resolve) => {
+      // Use Speech Synthesis API to announce recording
+      const utterance = new SpeechSynthesisUtterance(
+        "This interview will now be recorded. Recording started."
+      );
+
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      utterance.onend = () => {
+        // Play a beep after announcement
+        const audioContext = new AudioContext();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.value = 800;
+        oscillator.type = 'sine';
+
+        gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+
+        // Resolve after beep completes
+        setTimeout(resolve, 400);
+      };
+
+      utterance.onerror = () => {
+        console.error('Speech synthesis error');
+        resolve(); // Continue even if speech fails
+      };
+
+      window.speechSynthesis.speak(utterance);
+    });
+  };
+
   const handleStartRecording = async () => {
     try {
+      // Ask for consent before recording
+      const consent = confirm(
+        'Recording Consent Required\n\n' +
+        'This interview will be recorded for legal documentation purposes. ' +
+        'By clicking "OK", you acknowledge and consent to this recording.\n\n' +
+        'Do you agree to proceed with the recording?'
+      );
+
+      if (!consent) {
+        console.log('Recording consent denied by user');
+        return;
+      }
+
+      // Play announcement and wait for it to complete
+      await playRecordingAnnouncement();
+
       // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
@@ -127,7 +252,10 @@ export default function DemoPage() {
 
       recorder.onstop = () => {
         const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-        setAudioChunks(prev => [...prev, audioBlob]);
+        console.log('Recording stopped, blob size:', audioBlob.size, 'bytes');
+
+        // Auto-save the recording
+        autoSaveRecording(audioBlob);
 
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
@@ -237,16 +365,103 @@ export default function DemoPage() {
     setAudioLevel(0);
   };
 
-  const handleDownloadRecording = () => {
-    if (audioChunks.length === 0) return;
+  const autoSaveRecording = (audioBlob: Blob) => {
+    console.log('Auto-saving recording, blob size:', audioBlob.size, 'bytes');
 
-    const audioBlob = audioChunks[audioChunks.length - 1];
-    const url = URL.createObjectURL(audioBlob);
+    // Convert blob to base64 for localStorage
+    const reader = new FileReader();
+
+    reader.onerror = (error) => {
+      console.error('FileReader error:', error);
+      alert('Failed to save recording data.');
+    };
+
+    reader.onloadend = () => {
+      try {
+        const base64data = reader.result as string;
+        console.log('Base64 data length:', base64data.length);
+
+        const newRecording = {
+          id: Date.now().toString(),
+          name: `Interview Recording ${new Date().toLocaleString()}`,
+          data: base64data,
+          date: new Date().toISOString(),
+        };
+
+        console.log('Auto-saving recording:', newRecording.name);
+
+        // Update state
+        setSavedRecordings(prev => {
+          const updated = [...prev, newRecording];
+          console.log('Updated recordings count:', updated.length);
+
+          // Try to save to localStorage immediately
+          try {
+            localStorage.setItem(STORAGE_KEYS.RECORDINGS, JSON.stringify(updated));
+            console.log('Successfully auto-saved to localStorage');
+          } catch (storageError) {
+            console.error('localStorage error:', storageError);
+            if (storageError instanceof Error && storageError.name === 'QuotaExceededError') {
+              alert('Storage quota exceeded! Recording is too large to save in demo mode. Please try a shorter recording or create an account.');
+            } else {
+              alert('Failed to save recording to storage.');
+            }
+          }
+
+          return updated;
+        });
+
+        // Show success notification
+        alert('Recording automatically saved!');
+      } catch (error) {
+        console.error('Error processing recording:', error);
+        alert('Failed to save recording.');
+      }
+    };
+
+    reader.readAsDataURL(audioBlob);
+  };
+
+  const handleDownloadRecording = (recordingData: string, name: string) => {
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `interview-${new Date().toISOString()}.webm`;
+    a.href = recordingData;
+    a.download = `${name}.webm`;
     a.click();
-    URL.revokeObjectURL(url);
+  };
+
+  const handleDeleteRecording = (id: string) => {
+    if (confirm('Are you sure you want to delete this recording?')) {
+      setSavedRecordings(prev => {
+        const updated = prev.filter(r => r.id !== id);
+        console.log('Deleted recording, remaining count:', updated.length);
+
+        // Save to localStorage immediately
+        try {
+          localStorage.setItem(STORAGE_KEYS.RECORDINGS, JSON.stringify(updated));
+          console.log('Updated localStorage after deletion');
+        } catch (error) {
+          console.error('Failed to update localStorage after deletion:', error);
+        }
+
+        return updated;
+      });
+    }
+  };
+
+  const handleClearAllData = () => {
+    if (confirm('Are you sure you want to clear all demo data? This cannot be undone.')) {
+      localStorage.removeItem(STORAGE_KEYS.CASES);
+      localStorage.removeItem(STORAGE_KEYS.DOCUMENTS);
+      localStorage.removeItem(STORAGE_KEYS.RECORDINGS);
+      setCases(DEFAULT_CASES);
+      setDemoDocuments([
+        { id: 1, name: 'Employment Contract.pdf', type: 'Contract', size: '245 KB', date: '2024-12-15' },
+        { id: 2, name: 'Complaint Filing.docx', type: 'Pleading', size: '128 KB', date: '2024-12-20' },
+        { id: 3, name: 'Evidence Photos.zip', type: 'Evidence', size: '2.4 MB', date: '2025-01-03' },
+      ]);
+      setSavedRecordings([]);
+      alert('All demo data has been cleared!');
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -287,19 +502,27 @@ export default function DemoPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Demo Notice */}
         <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <div className="flex items-start gap-3">
-            <div className="text-blue-600 dark:text-blue-400 text-2xl">ℹ️</div>
-            <div>
-              <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-1">
-                Interactive Demo - Try All Features!
-              </h3>
-              <p className="text-sm text-blue-800 dark:text-blue-200">
-                Create cases, record interviews, and explore AI assistance. All data is stored locally in your browser.
-                <Link href={`/${locale}/auth/register`} className="font-semibold underline ml-1">
-                  Create a free account
-                </Link> to save your work permanently.
-              </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="text-blue-600 dark:text-blue-400 text-2xl">ℹ️</div>
+              <div>
+                <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-1">
+                  Interactive Demo - Try All Features!
+                </h3>
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  Create cases, record interviews, and explore AI assistance. All data is stored locally in your browser.
+                  <Link href={`/${locale}/auth/register`} className="font-semibold underline ml-1">
+                    Create a free account
+                  </Link> to save your work permanently.
+                </p>
+              </div>
             </div>
+            <button
+              onClick={handleClearAllData}
+              className="px-3 py-1 text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 border border-red-600 dark:border-red-400 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors whitespace-nowrap"
+            >
+              Clear All Data
+            </button>
           </div>
         </div>
 
@@ -443,16 +666,12 @@ export default function DemoPage() {
                       Stop Recording
                     </button>
                   )}
-                  {audioChunks.length > 0 && !isRecording && (
-                    <button
-                      onClick={handleDownloadRecording}
-                      className="flex items-center gap-2 px-6 py-3 text-lg font-medium text-white bg-blue-600 rounded-full hover:bg-blue-700 transition-colors"
-                    >
-                      <span className="text-2xl">💾</span>
-                      Download Recording
-                    </button>
-                  )}
                 </div>
+                {savedRecordings.length > 0 && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {savedRecordings.length} recording{savedRecordings.length !== 1 ? 's' : ''} saved
+                  </p>
+                )}
 
                 {isRecording && (
                   <div className="w-full space-y-4">
@@ -551,6 +770,43 @@ export default function DemoPage() {
                 </div>
               </div>
             </div>
+
+            {/* Saved Recordings */}
+            {savedRecordings.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  Saved Recordings ({savedRecordings.length})
+                </h3>
+                <div className="space-y-3">
+                  {savedRecordings.map((recording) => (
+                    <div key={recording.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">
+                          {recording.name}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {new Date(recording.date).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleDownloadRecording(recording.data, recording.name)}
+                          className="px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                        >
+                          Download
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRecording(recording.id)}
+                          className="px-3 py-1 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* AI Suggestions */}
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
