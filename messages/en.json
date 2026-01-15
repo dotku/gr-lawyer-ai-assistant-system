@@ -1,13 +1,36 @@
 {
   "common": {
-    "appName": "GR Lawyer Assistant System",
+    "appName": "OrdoLex",
     "language": "Language",
     "login": "Login",
     "logout": "Logout",
-    "register": "Register"
+    "register": "Register",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "search": "Search",
+    "filter": "Filter",
+    "loading": "Loading",
+    "error": "Error",
+    "success": "Success",
+    "close": "Close",
+    "submit": "Submit",
+    "back": "Back"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "intake": "Intake Inbox",
+    "cases": "Cases",
+    "clients": "Clients",
+    "documents": "Documents",
+    "tasks": "Tasks",
+    "settings": "Settings",
+    "profile": "Profile"
   },
   "home": {
-    "title": "Welcome to GR Lawyer Assistant",
+    "title": "Welcome to OrdoLex",
     "subtitle": "AI-powered legal assistance platform for efficient case management",
     "getStarted": "Get Started",
     "learnMore": "Learn More",
@@ -29,6 +52,155 @@
     "signUp": "Sign Up",
     "forgotPassword": "Forgot Password?",
     "noAccount": "Don't have an account?",
-    "haveAccount": "Already have an account?"
+    "haveAccount": "Already have an account?",
+    "name": "Full Name"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "welcome": "Welcome back",
+    "search": "Search cases, clients, or documents...",
+    "todoList": {
+      "title": "Todo List",
+      "empty": "No tasks yet",
+      "addTask": "Add Task",
+      "newTask": "New Task",
+      "taskTitle": "Task title",
+      "dueDate": "Due date",
+      "priority": "Priority",
+      "markComplete": "Mark as complete",
+      "deleteTask": "Delete task"
+    },
+    "recentCases": {
+      "title": "Recent Cases",
+      "viewAll": "View All Cases",
+      "empty": "No recent cases",
+      "caseNumber": "Case Number",
+      "client": "Client",
+      "status": "Status",
+      "priority": "Priority",
+      "lastUpdated": "Last Updated"
+    }
+  },
+  "intake": {
+    "title": "Intake Inbox",
+    "newIntake": "New Intake",
+    "searchIntake": "Search intakes...",
+    "filters": {
+      "all": "All",
+      "new": "New",
+      "processing": "Processing",
+      "needReview": "Need Review",
+      "sent": "Sent",
+      "archived": "Archived"
+    },
+    "detail": {
+      "caseNumber": "Case Number",
+      "clientName": "Client Name",
+      "clientEmail": "Client Email",
+      "clientPhone": "Client Phone",
+      "category": "Category",
+      "tags": "Tags",
+      "shareSettings": "Share Settings",
+      "schedule": "Schedule",
+      "addSchedule": "Add Meeting",
+      "meetingTitle": "Meeting Title",
+      "meetingDate": "Date",
+      "meetingTime": "Time",
+      "meetingLink": "Meeting Link",
+      "meetingType": "Type",
+      "notices": "Notices",
+      "addNotice": "Add Notice",
+      "noticeContent": "Notice content",
+      "questions": "Questions",
+      "addQuestion": "Add Question",
+      "questionText": "Question",
+      "answerText": "Answer",
+      "uploadFile": "Upload File",
+      "notes": "Notes",
+      "addNote": "Add Note",
+      "noteContent": "Note content",
+      "autoSummary": "Auto Summarization",
+      "generateSummary": "Generate Summary",
+      "regenerateSummary": "Regenerate",
+      "actions": {
+        "title": "Actions",
+        "createMatter": "Create Matter",
+        "requestInfo": "Request Info",
+        "draftEmail": "Draft Confirmation Email",
+        "documentList": "Send Document List"
+      }
+    },
+    "create": {
+      "title": "Create New Intake",
+      "clientInfo": "Client Information"
+    }
+  },
+  "matter": {
+    "title": "Matter Workspace",
+    "tabs": {
+      "overview": "Overview",
+      "documents": "Documents",
+      "billing": "Billing",
+      "fields": "Fields",
+      "tab": "Tab",
+      "view": "View",
+      "format": "Format"
+    },
+    "sidebar": {
+      "matterName": "Matter Name",
+      "client": "Client",
+      "state": "State",
+      "lawyer": "Lawyer",
+      "created": "Created",
+      "status": "Status"
+    },
+    "overview": {
+      "caseSummary": "Case Summary",
+      "editSummary": "Edit Summary",
+      "nextActions": "Next Actions",
+      "addAction": "Add Action",
+      "actionItem": "Action item",
+      "latestCommunication": "Latest Communication",
+      "emailSent": "Email sent",
+      "documentSigned": "Document signed",
+      "callScheduled": "Call scheduled",
+      "documentChecklist": "Document Checklist",
+      "passport": "Passport",
+      "birthCertificate": "Birth Certificate",
+      "marriageCertificate": "Marriage Certificate",
+      "proofOfAddress": "Proof of Address",
+      "uploadDocument": "Upload",
+      "actions": {
+        "title": "Quick Actions",
+        "sendEmail": "Send Email",
+        "scheduleCall": "Schedule Call",
+        "billingEmail": "Send Billing Email"
+      }
+    }
+  },
+  "status": {
+    "open": "Open",
+    "inProgress": "In Progress",
+    "pending": "Pending",
+    "closed": "Closed",
+    "archived": "Archived",
+    "new": "New",
+    "processing": "Processing",
+    "needReview": "Need Review",
+    "sent": "Sent",
+    "converted": "Converted"
+  },
+  "priority": {
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "urgent": "Urgent"
+  },
+  "errors": {
+    "required": "This field is required",
+    "invalidEmail": "Invalid email address",
+    "passwordMismatch": "Passwords do not match",
+    "minLength": "Minimum length is {min} characters",
+    "generic": "Something went wrong. Please try again."
   }
 }

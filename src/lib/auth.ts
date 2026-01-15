@@ -1,4 +1,5 @@
 import { NextAuthOptions } from 'next-auth';
+import { getServerSession } from 'next-auth/next';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
@@ -67,3 +68,8 @@ export const authOptions: NextAuthOptions = {
   },
   secret: process.env.NEXTAUTH_SECRET,
 };
+
+// Helper function to get session in Server Components
+export async function auth() {
+  return await getServerSession(authOptions);
+}

@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GR Lawyer Assistant System",
+  title: "OrdoLex - AI Legal Assistant",
   description: "AI-powered legal assistance platform for efficient case management and document processing",
 };
 

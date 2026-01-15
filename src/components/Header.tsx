@@ -26,6 +26,12 @@ export default function Header() {
               Try Demo
             </Link>
             <Link
+              href={`/${locale}/demo-intake`}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
+            >
+              Intake Demo
+            </Link>
+            <Link
               href={`/${locale}/auth/login`}
               className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white"
             >

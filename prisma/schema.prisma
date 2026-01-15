@@ -25,6 +25,8 @@ model User {
   tasks         Task[]
   notes         Note[]
   conversations AIConversation[]
+  intakes       Intake[]
+  intakeNotes   IntakeNote[]
 
   @@map("users")
 }
@@ -62,10 +64,17 @@ model Case {
   status        CaseStatus @default(OPEN)
   priority      Priority   @default(MEDIUM)
   caseType      String
+  state         String?
   startDate     DateTime   @default(now())
   endDate       DateTime?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
+
+  // Matter workspace fields
+  summary       Json?      // Structured summary data
+  nextActions   Json?      // Array of next actions
+  communications Json?     // Latest communications
+  checklist     Json?      // Document checklist items
 
   clientId      String
   client        Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -77,6 +86,7 @@ model Case {
   tasks         Task[]
   notes         Note[]
   conversations AIConversation[]
+  intakeSource  Intake?
 
   @@map("cases")
 }
@@ -186,4 +196,100 @@ model AIConversation {
   user      User     @relation(fields: [userId], references: [id])
 
   @@map("ai_conversations")
+}
+
+// Intake workflow models
+model Intake {
+  id            String        @id @default(cuid())
+  intakeNumber  String        @unique
+  clientName    String
+  clientEmail   String
+  clientPhone   String?
+  status        IntakeStatus  @default(NEW)
+  category      String?
+  tags          String[]
+  shareSettings String        @default("Only those invited")
+  summary       String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  assignedToId    String?
+  assignedTo      User?         @relation(fields: [assignedToId], references: [id])
+
+  convertedCaseId String?       @unique
+  convertedCase   Case?         @relation(fields: [convertedCaseId], references: [id])
+
+  schedules    IntakeSchedule[]
+  notices      IntakeNotice[]
+  questions    IntakeQuestion[]
+  notes        IntakeNote[]
+
+  @@index([status])
+  @@index([assignedToId])
+  @@index([createdAt])
+  @@map("intakes")
+}
+
+enum IntakeStatus {
+  NEW
+  PROCESSING
+  NEED_REVIEW
+  SENT
+  ARCHIVED
+  CONVERTED
+}
+
+model IntakeSchedule {
+  id          String   @id @default(cuid())
+  title       String
+  date        DateTime
+  time        String
+  meetingLink String?
+  type        String   // "zoom", "meeting", etc.
+  createdAt   DateTime @default(now())
+
+  intakeId    String
+  intake      Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+
+  @@map("intake_schedules")
+}
+
+model IntakeNotice {
+  id        String   @id @default(cuid())
+  content   String
+  isStarred Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  intakeId  String
+  intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+
+  @@map("intake_notices")
+}
+
+model IntakeQuestion {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String?
+  fileUrl   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  intakeId  String
+  intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+
+  @@map("intake_questions")
+}
+
+model IntakeNote {
+  id        String   @id @default(cuid())
+  content   String
+  createdAt DateTime @default(now())
+
+  intakeId  String
+  intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@map("intake_notes")
 }
