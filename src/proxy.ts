@@ -18,7 +18,7 @@ const intlMiddleware = createMiddleware({
 // Protected routes that require authentication
 const protectedRoutes = ['/dashboard', '/intake', '/matter', '/cases', '/clients', '/documents', '/tasks'];
 
-export default async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Run the i18n middleware first
   const response = intlMiddleware(request);
 

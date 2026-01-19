@@ -17,6 +17,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { VoiceInput, TranscriptionResult } from '@/components/ui/voice-input';
+import { ConversationRecorder, ConversationSegment } from '@/components/ui/conversation-recorder';
 import {
   Search,
   Plus,
@@ -27,6 +29,8 @@ import {
   Sparkles,
   ArrowRight,
   X,
+  Mic,
+  MessageSquare,
 } from 'lucide-react';
 
 // Type definitions for mock data
@@ -50,12 +54,22 @@ interface MockQuestion {
   id: string;
   question: string;
   answer: string | null;
+  audioUrl?: string;
 }
 
 interface MockNote {
   id: string;
   content: string;
   author: { name: string; email: string };
+  createdAt: Date;
+  audioUrl?: string;
+}
+
+interface MockRecording {
+  id: string;
+  name: string;
+  audioUrl: string;
+  transcription: string;
   createdAt: Date;
 }
 
@@ -75,6 +89,8 @@ interface MockIntake {
   notices: MockNotice[];
   questions: MockQuestion[];
   notes: MockNote[];
+  recordings: MockRecording[];
+  conversation: ConversationSegment[];
 }
 
 // Mock data
@@ -129,6 +145,8 @@ const generateMockIntakes = (): MockIntake[] => [
         createdAt: new Date(),
       },
     ],
+    recordings: [],
+    conversation: [],
   },
   {
     id: '2',
@@ -146,6 +164,8 @@ const generateMockIntakes = (): MockIntake[] => [
     notices: [],
     questions: [],
     notes: [],
+    recordings: [],
+    conversation: [],
   },
   {
     id: '3',
@@ -163,6 +183,8 @@ const generateMockIntakes = (): MockIntake[] => [
     notices: [],
     questions: [],
     notes: [],
+    recordings: [],
+    conversation: [],
   },
 ];
 
@@ -428,6 +450,8 @@ export function IntakeDemoView() {
       notices: [],
       questions: [],
       notes: [],
+      recordings: [],
+    conversation: [],
     };
 
     setIntakes(prev => [newIntake, ...prev]);
@@ -790,18 +814,31 @@ export function IntakeDemoView() {
                       </p>
                     ) : answeringQuestionId === question.id ? (
                       <div className="space-y-2">
-                        <Input
-                          placeholder="Type answer..."
-                          value={questionAnswer}
-                          onChange={(e) => setQuestionAnswer(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              handleAnswerQuestion(question.id);
-                            }
-                          }}
-                          autoFocus
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="Type or record answer..."
+                            value={questionAnswer}
+                            onChange={(e) => setQuestionAnswer(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleAnswerQuestion(question.id);
+                              }
+                            }}
+                            autoFocus
+                            className="flex-1"
+                          />
+                          <VoiceInput
+                            onTranscript={(text, result) => {
+                              setQuestionAnswer(prev => prev ? `${prev} ${text}` : text);
+                              if (result?.audioUrl) {
+                                console.log('Answer recording saved:', result.audioUrl);
+                              }
+                            }}
+                            buttonSize="icon"
+                            saveAudio
+                          />
+                        </div>
                         <div className="flex gap-2">
                           <Button
                             size="sm"
@@ -841,17 +878,30 @@ export function IntakeDemoView() {
                 )}
 
                 <div className="space-y-2 pt-2 border-t">
-                  <Input
-                    placeholder="Add a question..."
-                    value={questionText}
-                    onChange={e => setQuestionText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddQuestion();
-                      }
-                    }}
-                  />
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Add a question (type or use voice)..."
+                      value={questionText}
+                      onChange={e => setQuestionText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddQuestion();
+                        }
+                      }}
+                      className="flex-1"
+                    />
+                    <VoiceInput
+                      onTranscript={(text, result) => {
+                        setQuestionText(prev => prev ? `${prev} ${text}` : text);
+                        if (result?.audioUrl) {
+                          console.log('Question recording saved:', result.audioUrl);
+                        }
+                      }}
+                      buttonSize="icon"
+                      saveAudio
+                    />
+                  </div>
                   <Button
                     onClick={handleAddQuestion}
                     size="sm"
@@ -889,18 +939,32 @@ export function IntakeDemoView() {
                 )}
 
                 <div className="space-y-2 pt-2 border-t">
-                  <Textarea
-                    placeholder="Add a note..."
-                    value={noteContent}
-                    onChange={e => setNoteContent(e.target.value)}
-                    rows={3}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault();
-                        handleAddNote();
-                      }
-                    }}
-                  />
+                  <div className="flex gap-2">
+                    <Textarea
+                      placeholder="Add a note (type or use voice)..."
+                      value={noteContent}
+                      onChange={e => setNoteContent(e.target.value)}
+                      rows={3}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          handleAddNote();
+                        }
+                      }}
+                      className="flex-1"
+                    />
+                    <VoiceInput
+                      onTranscript={(text, result) => {
+                        setNoteContent(prev => prev ? `${prev} ${text}` : text);
+                        if (result?.audioUrl) {
+                          console.log('Note recording saved:', result.audioUrl);
+                        }
+                      }}
+                      buttonSize="icon"
+                      className="self-start"
+                      saveAudio
+                    />
+                  </div>
                   <Button
                     onClick={handleAddNote}
                     size="sm"
@@ -910,6 +974,38 @@ export function IntakeDemoView() {
                     Add Note
                   </Button>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Interview Recording */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center text-lg">
+                  <MessageSquare className="mr-2 h-5 w-5" />
+                  Interview Recording
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ConversationRecorder
+                  onConversationUpdate={(segments) => {
+                    // Update the selected intake's conversation
+                    setIntakes(prev =>
+                      prev.map(intake =>
+                        intake.id === selectedIntake.id
+                          ? { ...intake, conversation: segments }
+                          : intake
+                      )
+                    );
+                    // Also update selectedIntake
+                    setSelectedIntake(prev =>
+                      prev ? { ...prev, conversation: segments } : prev
+                    );
+                  }}
+                  initialSegments={selectedIntake.conversation}
+                  speakerALabel="Lawyer"
+                  speakerBLabel="Client"
+                  saveAudio
+                />
               </CardContent>
             </Card>
 

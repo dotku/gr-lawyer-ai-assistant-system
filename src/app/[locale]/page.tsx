@@ -42,10 +42,16 @@ export default function Home() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
+              href={`/${locale}/demo-chat`}
+              className="px-8 py-3 text-base font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+            >
+              AI Chat Demo
+            </Link>
+            <Link
               href={`/${locale}/demo`}
               className="px-8 py-3 text-base font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Try Demo (No Registration)
+              Case Management Demo
             </Link>
             <Link
               href={`/${locale}/auth/register`}
