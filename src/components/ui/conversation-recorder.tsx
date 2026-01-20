@@ -202,7 +202,8 @@ export function ConversationRecorder({
   const [liveText, setLiveText] = useState('');
   const [interimText, setInterimText] = useState('');
   const [currentLiveSpeaker, setCurrentLiveSpeaker] = useState<string>('A');
-  const [speechLanguage, setSpeechLanguage] = useState(defaultLanguage);
+  const [manualLanguage, setManualLanguage] = useState(defaultLanguage);
+  const [detectedLanguage, setDetectedLanguage] = useState(defaultLanguage);
   const [previewTextDuringProcessing, setPreviewTextDuringProcessing] = useState('');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [lastRecordingDuration, setLastRecordingDuration] = useState(0);
@@ -245,6 +246,10 @@ export function ConversationRecorder({
     return () => {
       cleanup();
     };
+  }, []);
+
+  useEffect(() => {
+    setDetectedLanguage(detectBrowserLanguage());
   }, []);
 
   const cleanup = useCallback(() => {
@@ -350,7 +355,8 @@ export function ConversationRecorder({
       if (recognition) {
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = speechLanguage; // Use selected language
+        const activeLanguage = mode === 'auto' ? detectedLanguage : manualLanguage;
+        recognition.lang = activeLanguage; // Use selected language
 
         // Accumulate all finalized text during recording
         let accumulatedText = '';
@@ -873,12 +879,12 @@ export function ConversationRecorder({
         <div className="flex items-center gap-2">
           <Globe className="h-4 w-4 text-gray-400" />
           <select
-            value={speechLanguage}
-            onChange={(e) => setSpeechLanguage(e.target.value)}
-            disabled={isRecording || isTranscribing || isConnecting}
+            value={mode === 'auto' ? detectedLanguage : manualLanguage}
+            onChange={(e) => setManualLanguage(e.target.value)}
+            disabled={mode === 'auto' || isRecording || isTranscribing || isConnecting}
             className={cn(
               'text-sm border rounded-lg px-2 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300',
-              (isRecording || isTranscribing || isConnecting) && 'opacity-50 cursor-not-allowed'
+              (mode === 'auto' || isRecording || isTranscribing || isConnecting) && 'opacity-50 cursor-not-allowed'
             )}
           >
             {SPEECH_LANGUAGES.map((lang) => (
