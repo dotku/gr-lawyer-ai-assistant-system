@@ -132,6 +132,8 @@ interface ConversationRecorderProps {
   saveAudio?: boolean;
   defaultMode?: RecordingMode;
   defaultLanguage?: string;
+  sessionId?: string;
+  sourceName?: string;
 }
 
 // Color palette for multiple speakers
@@ -184,6 +186,8 @@ export function ConversationRecorder({
   saveAudio = true,
   defaultMode = 'auto',
   defaultLanguage = 'el-GR',
+  sessionId,
+  sourceName = 'Recording',
 }: ConversationRecorderProps) {
   const [segments, setSegments] = useState<ConversationSegment[]>(initialSegments);
   const [mode, setMode] = useState<RecordingMode>(defaultMode);
@@ -495,6 +499,10 @@ export function ConversationRecorder({
         formData.append('audio', audioBlob, 'audio.webm');
         formData.append('save', saveAudio ? 'true' : 'false');
         formData.append('speakers_expected', '2');
+        if (sessionId) {
+          formData.append('session_id', sessionId);
+          formData.append('source_name', sourceName);
+        }
 
         const response = await fetch('/api/transcribe-diarization', {
           method: 'POST',
@@ -503,6 +511,11 @@ export function ConversationRecorder({
 
         if (response.ok) {
           const data = await response.json();
+          console.log('Transcription response:', {
+            segmentsCount: data.segments?.length,
+            audioUrl: data.audioUrl,
+            transcriptId: data.transcriptId
+          });
 
           if (data.segments && data.segments.length > 0) {
             // Replace temporary segments with properly diarized ones from AssemblyAI
@@ -536,9 +549,16 @@ export function ConversationRecorder({
 
             setSegments(diarizedSegments);
             onConversationUpdate(diarizedSegments);
-            setSaveStatus(data.audioUrl ? 'saved' : 'idle');
-          } else if (data.audioUrl) {
-            // No segments from diarization, but audio was saved - update existing segments
+            // Mark as saved if either audio or transcript was saved
+            const wasSaved = data.audioUrl || data.transcriptId;
+            if (wasSaved) {
+              setSaveStatus('saved');
+              setTimeout(() => setSaveStatus('idle'), 3000);
+            } else {
+              setSaveStatus('idle');
+            }
+          } else if (data.audioUrl || data.transcriptId) {
+            // No segments from diarization, but something was saved
             setSegments((prev) => {
               const updated = prev.map((seg) => ({
                 ...seg,
@@ -549,10 +569,13 @@ export function ConversationRecorder({
               return updated;
             });
             setSaveStatus('saved');
+            setTimeout(() => setSaveStatus('idle'), 3000);
           } else {
             setSaveStatus('idle');
           }
         } else {
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Transcription failed:', errorData);
           setSaveStatus('error');
         }
       } catch (error) {
@@ -570,10 +593,6 @@ export function ConversationRecorder({
       } finally {
         setIsTranscribing(false);
         setPreviewTextDuringProcessing('');
-        // Auto-clear saved status after 3 seconds
-        if (saveStatus === 'saved') {
-          setTimeout(() => setSaveStatus('idle'), 3000);
-        }
       }
     }
   };

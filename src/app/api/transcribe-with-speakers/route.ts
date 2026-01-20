@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseClient } from '@/lib/supabase';
 
 export const maxDuration = 60;
 
-async function uploadToSupabase(audioBlob: Blob, fileName: string): Promise<string> {
+async function uploadToSupabase(audioBlob: Blob, fileName: string): Promise<string | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.log('Supabase not configured, skipping audio storage');
+    return null;
+  }
+
   const buffer = Buffer.from(await audioBlob.arrayBuffer());
   const filePath = `recordings/${Date.now()}-${fileName}`;
 

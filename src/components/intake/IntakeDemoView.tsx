@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { VoiceInput, TranscriptionResult } from '@/components/ui/voice-input';
 import { ConversationRecorder, ConversationSegment } from '@/components/ui/conversation-recorder';
+import { getSupabaseClient, type Transcript, type SpeakerSegment } from '@/lib/supabase';
 import {
   Search,
   Plus,
@@ -31,6 +32,18 @@ import {
   X,
   Mic,
   MessageSquare,
+  RefreshCw,
+  Play,
+  Pause,
+  Volume2,
+  Clock,
+  Trash2,
+  Edit2,
+  Check,
+  Loader2,
+  Download,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 // Type definitions for mock data
@@ -214,6 +227,264 @@ export function IntakeDemoView() {
   const [newIntakeClientEmail, setNewIntakeClientEmail] = useState('');
   const [newIntakeClientPhone, setNewIntakeClientPhone] = useState('');
   const [newIntakeCategory, setNewIntakeCategory] = useState('');
+
+  // Saved transcripts state
+  const [savedTranscripts, setSavedTranscripts] = useState<Transcript[]>([]);
+  const [isLoadingTranscripts, setIsLoadingTranscripts] = useState(false);
+
+  // Audio playback state
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+  const [audioDuration, setAudioDuration] = useState<number>(0);
+  const [audioCurrentTime, setAudioCurrentTime] = useState<number>(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Load saved transcripts from Supabase when intake is selected
+  const loadSavedTranscripts = useCallback(async (intakeId: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      console.log('Supabase not configured, cannot load transcripts');
+      return;
+    }
+
+    setIsLoadingTranscripts(true);
+    try {
+      const { data, error } = await supabase
+        .from('transcripts')
+        .select('*')
+        .eq('session_id', intakeId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Failed to load transcripts:', error);
+        return;
+      }
+
+      setSavedTranscripts(data || []);
+      console.log('Loaded transcripts:', data?.length || 0);
+
+      // Convert saved transcripts to conversation segments for the recorder
+      if (data && data.length > 0) {
+        const latestTranscript = data[0];
+        if (latestTranscript.speaker_segments && Array.isArray(latestTranscript.speaker_segments)) {
+          const segments: ConversationSegment[] = latestTranscript.speaker_segments.map((seg: SpeakerSegment, index: number) => ({
+            id: `saved-${index}`,
+            speaker: seg.speaker,
+            speakerLabel: `Speaker ${seg.speaker}`,
+            text: seg.text,
+            timestamp: new Date(latestTranscript.created_at),
+            startTime: seg.start_time,
+            endTime: seg.end_time,
+            audioUrl: (latestTranscript.metadata as { audio_url?: string })?.audio_url,
+          }));
+
+          // Update the intake's conversation with saved segments
+          setIntakes(prev =>
+            prev.map(intake =>
+              intake.id === intakeId
+                ? { ...intake, conversation: segments }
+                : intake
+            )
+          );
+
+          if (selectedIntake?.id === intakeId) {
+            setSelectedIntake(prev =>
+              prev ? { ...prev, conversation: segments } : prev
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading transcripts:', error);
+    } finally {
+      setIsLoadingTranscripts(false);
+    }
+  }, [selectedIntake?.id]);
+
+  // Load transcripts when intake is selected
+  useEffect(() => {
+    if (selectedIntake) {
+      loadSavedTranscripts(selectedIntake.id);
+    }
+  }, [selectedIntake?.id, loadSavedTranscripts]);
+
+  // Transcript editing state
+  const [editingTranscriptId, setEditingTranscriptId] = useState<string | null>(null);
+  const [editingTranscriptContent, setEditingTranscriptContent] = useState('');
+  const [isDeletingTranscript, setIsDeletingTranscript] = useState<string | null>(null);
+  const [expandedTranscriptId, setExpandedTranscriptId] = useState<string | null>(null);
+
+  // Format time for SRT format (HH:MM:SS,mmm)
+  const formatSrtTime = (seconds: number | null | undefined): string => {
+    if (seconds === null || seconds === undefined || !isFinite(seconds) || isNaN(seconds)) {
+      return '00:00:00,000';
+    }
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    const ms = Math.floor((seconds % 1) * 1000);
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
+  };
+
+  // Convert speaker segments to SRT format
+  const convertToSrt = (segments: SpeakerSegment[]): string => {
+    if (!segments || segments.length === 0) return '';
+    return segments.map((seg, index) => {
+      const startTime = formatSrtTime(seg.start_time);
+      const endTime = formatSrtTime(seg.end_time);
+      return `${index + 1}\n${startTime} --> ${endTime}\n[Speaker ${seg.speaker}]: ${seg.text}\n`;
+    }).join('\n');
+  };
+
+  // Download transcript as SRT file
+  const handleDownloadSrt = (transcript: Transcript) => {
+    const segments = transcript.speaker_segments as SpeakerSegment[] | null;
+    if (!segments || segments.length === 0) {
+      alert('No speaker segments available for this transcript');
+      return;
+    }
+    const srtContent = convertToSrt(segments);
+    const blob = new Blob([srtContent], { type: 'text/srt' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${transcript.source_name.replace(/[^a-z0-9]/gi, '_')}_${new Date(transcript.created_at).toISOString().split('T')[0]}.srt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // Audio playback functions
+  const formatTime = (seconds: number | null | undefined) => {
+    if (seconds === null || seconds === undefined || !isFinite(seconds) || isNaN(seconds)) {
+      return '--:--';
+    }
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Delete transcript from Supabase
+  const handleDeleteTranscript = async (transcriptId: string) => {
+    if (!confirm('Are you sure you want to delete this recording? This action cannot be undone.')) {
+      return;
+    }
+
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      alert('Supabase not configured');
+      return;
+    }
+
+    setIsDeletingTranscript(transcriptId);
+    try {
+      const { error } = await supabase
+        .from('transcripts')
+        .delete()
+        .eq('id', transcriptId);
+
+      if (error) {
+        console.error('Failed to delete transcript:', error);
+        alert('Failed to delete recording: ' + error.message);
+        return;
+      }
+
+      // Remove from local state
+      setSavedTranscripts(prev => prev.filter(t => t.id !== transcriptId));
+    } catch (error) {
+      console.error('Error deleting transcript:', error);
+      alert('Failed to delete recording');
+    } finally {
+      setIsDeletingTranscript(null);
+    }
+  };
+
+  // Update transcript content in Supabase
+  const handleUpdateTranscript = async (transcriptId: string, newContent: string) => {
+    const supabase = getSupabaseClient();
+    if (!supabase) {
+      alert('Supabase not configured');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('transcripts')
+        .update({ content: newContent })
+        .eq('id', transcriptId);
+
+      if (error) {
+        console.error('Failed to update transcript:', error);
+        alert('Failed to update transcript: ' + error.message);
+        return;
+      }
+
+      // Update local state
+      setSavedTranscripts(prev =>
+        prev.map(t => t.id === transcriptId ? { ...t, content: newContent } : t)
+      );
+      setEditingTranscriptId(null);
+      setEditingTranscriptContent('');
+    } catch (error) {
+      console.error('Error updating transcript:', error);
+      alert('Failed to update transcript');
+    }
+  };
+
+  const handlePlayAudio = (transcriptId: string, audioUrl: string) => {
+    if (playingAudioId === transcriptId) {
+      // Pause current audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setPlayingAudioId(null);
+    } else {
+      // Stop any current audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      // Create new audio element
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+
+      audio.addEventListener('loadedmetadata', () => {
+        setAudioDuration(audio.duration);
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        setAudioCurrentTime(audio.currentTime);
+      });
+
+      audio.addEventListener('ended', () => {
+        setPlayingAudioId(null);
+        setAudioCurrentTime(0);
+      });
+
+      audio.addEventListener('error', (e) => {
+        console.error('Audio playback error:', e);
+        setPlayingAudioId(null);
+        alert('Failed to play audio. The file may no longer be available.');
+      });
+
+      audio.play().catch((error) => {
+        console.error('Failed to play audio:', error);
+        setPlayingAudioId(null);
+      });
+
+      setPlayingAudioId(transcriptId);
+    }
+  };
+
+  // Cleanup audio on unmount or intake change
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, [selectedIntake?.id]);
 
   const filters = [
     { key: 'all', label: 'All', count: intakes.length },
@@ -980,12 +1251,245 @@ export function IntakeDemoView() {
             {/* Interview Recording */}
             <Card className="mb-6">
               <CardHeader>
-                <CardTitle className="flex items-center text-lg">
-                  <MessageSquare className="mr-2 h-5 w-5" />
-                  Interview Recording
+                <CardTitle className="flex items-center justify-between text-lg">
+                  <div className="flex items-center">
+                    <MessageSquare className="mr-2 h-5 w-5" />
+                    Interview Recording
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {savedTranscripts.length > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {savedTranscripts.length} saved
+                      </Badge>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => loadSavedTranscripts(selectedIntake.id)}
+                      disabled={isLoadingTranscripts}
+                      title="Refresh saved recordings"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${isLoadingTranscripts ? 'animate-spin' : ''}`} />
+                    </Button>
+                  </div>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-4">
+                {/* Show saved transcripts with audio playback */}
+                {savedTranscripts.length > 0 && (
+                  <div className="p-3 bg-green-50 dark:bg-green-950/30 rounded-lg border border-green-200 dark:border-green-800">
+                    <p className="text-sm text-green-700 dark:text-green-300 font-medium mb-3">
+                      Saved Recordings ({savedTranscripts.length})
+                    </p>
+                    <div className="space-y-3">
+                      {savedTranscripts.map((transcript) => {
+                        const audioUrl = (transcript.metadata as { audio_url?: string })?.audio_url;
+                        const duration = (transcript.metadata as { duration?: number })?.duration;
+                        const isPlaying = playingAudioId === transcript.id;
+                        const isEditing = editingTranscriptId === transcript.id;
+                        const isDeleting = isDeletingTranscript === transcript.id;
+
+                        return (
+                          <div
+                            key={transcript.id}
+                            className="p-3 bg-white dark:bg-gray-900 rounded-md border border-green-100 dark:border-green-900"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm font-medium text-green-700 dark:text-green-300 truncate flex-1 mr-2">
+                                {transcript.source_name}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-green-500 dark:text-green-400 whitespace-nowrap">
+                                  {new Date(transcript.created_at).toLocaleDateString()} {new Date(transcript.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                                {/* Edit button */}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                                  onClick={() => {
+                                    if (isEditing) {
+                                      setEditingTranscriptId(null);
+                                      setEditingTranscriptContent('');
+                                    } else {
+                                      setEditingTranscriptId(transcript.id);
+                                      setEditingTranscriptContent(transcript.content);
+                                    }
+                                  }}
+                                  title={isEditing ? 'Cancel editing' : 'Edit transcript'}
+                                >
+                                  {isEditing ? <X className="h-3 w-3" /> : <Edit2 className="h-3 w-3" />}
+                                </Button>
+                                {/* Delete button */}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0 text-gray-400 hover:text-red-600 dark:hover:text-red-400"
+                                  onClick={() => handleDeleteTranscript(transcript.id)}
+                                  disabled={isDeleting}
+                                  title="Delete recording"
+                                >
+                                  {isDeleting ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+
+                            {audioUrl ? (
+                              <div className="flex items-center gap-3">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 border-green-300 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900"
+                                  onClick={() => handlePlayAudio(transcript.id, audioUrl)}
+                                >
+                                  {isPlaying ? (
+                                    <Pause className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                  ) : (
+                                    <Play className="h-4 w-4 text-green-600 dark:text-green-400" />
+                                  )}
+                                </Button>
+
+                                <div className="flex-1 flex items-center gap-2">
+                                  {isPlaying && (
+                                    <>
+                                      <div className="flex-1 h-1 bg-green-200 dark:bg-green-800 rounded-full overflow-hidden">
+                                        <div
+                                          className="h-full bg-green-500 transition-all"
+                                          style={{ width: `${audioDuration && audioDuration > 0 ? (audioCurrentTime / audioDuration) * 100 : 0}%` }}
+                                        />
+                                      </div>
+                                      <span className="text-xs text-green-600 dark:text-green-400 min-w-[60px] text-right">
+                                        {formatTime(audioCurrentTime)} / {formatTime(audioDuration)}
+                                      </span>
+                                    </>
+                                  )}
+                                  {!isPlaying && (
+                                    <span className="text-xs text-green-500 dark:text-green-400 flex items-center gap-1">
+                                      <Clock className="h-3 w-3" />
+                                      {formatTime(duration)}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <Volume2 className="h-4 w-4 text-green-400 dark:text-green-600" />
+                              </div>
+                            ) : (
+                              <p className="text-xs text-green-500 dark:text-green-400 italic">
+                                No audio file available
+                              </p>
+                            )}
+
+                            {/* Show transcript content in SRT format */}
+                            {isEditing ? (
+                              <div className="mt-3 space-y-2">
+                                <Textarea
+                                  value={editingTranscriptContent}
+                                  onChange={(e) => setEditingTranscriptContent(e.target.value)}
+                                  className="text-xs min-h-[100px] font-mono"
+                                  placeholder="Edit transcript content..."
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleUpdateTranscript(transcript.id, editingTranscriptContent)}
+                                    className="h-7 text-xs"
+                                  >
+                                    <Check className="h-3 w-3 mr-1" />
+                                    Save
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setEditingTranscriptId(null);
+                                      setEditingTranscriptContent('');
+                                    }}
+                                    className="h-7 text-xs"
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mt-3">
+                                {/* SRT format display */}
+                                {transcript.speaker_segments && Array.isArray(transcript.speaker_segments) && transcript.speaker_segments.length > 0 ? (
+                                  <div className="space-y-2">
+                                    {/* Show first 2 segments as preview or all if expanded */}
+                                    <div className="font-mono text-xs bg-gray-50 dark:bg-gray-800 rounded p-2 space-y-2 max-h-48 overflow-y-auto">
+                                      {(expandedTranscriptId === transcript.id
+                                        ? transcript.speaker_segments
+                                        : transcript.speaker_segments.slice(0, 2)
+                                      ).map((seg: SpeakerSegment, idx: number) => (
+                                        <div key={idx} className="border-b border-gray-200 dark:border-gray-700 pb-2 last:border-0 last:pb-0">
+                                          <div className="text-gray-400 dark:text-gray-500">
+                                            {idx + 1}
+                                          </div>
+                                          <div className="text-blue-600 dark:text-blue-400">
+                                            {formatSrtTime(seg.start_time)} --&gt; {formatSrtTime(seg.end_time)}
+                                          </div>
+                                          <div className="text-gray-700 dark:text-gray-300">
+                                            <span className="text-green-600 dark:text-green-400 font-medium">[Speaker {seg.speaker}]:</span> {seg.text}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+
+                                    {/* Show expand/collapse if more than 2 segments */}
+                                    {transcript.speaker_segments.length > 2 && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 text-xs w-full"
+                                        onClick={() => setExpandedTranscriptId(
+                                          expandedTranscriptId === transcript.id ? null : transcript.id
+                                        )}
+                                      >
+                                        {expandedTranscriptId === transcript.id ? (
+                                          <>
+                                            <ChevronUp className="h-3 w-3 mr-1" />
+                                            Show less
+                                          </>
+                                        ) : (
+                                          <>
+                                            <ChevronDown className="h-3 w-3 mr-1" />
+                                            Show all {transcript.speaker_segments.length} segments
+                                          </>
+                                        )}
+                                      </Button>
+                                    )}
+
+                                    {/* Download SRT button */}
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-7 text-xs"
+                                      onClick={() => handleDownloadSrt(transcript)}
+                                    >
+                                      <Download className="h-3 w-3 mr-1" />
+                                      Download SRT
+                                    </Button>
+                                  </div>
+                                ) : transcript.content ? (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                                    {transcript.content.length > 200
+                                      ? `${transcript.content.substring(0, 200)}...`
+                                      : transcript.content}
+                                  </p>
+                                ) : null}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 <ConversationRecorder
                   onConversationUpdate={(segments) => {
                     // Update the selected intake's conversation
@@ -1000,11 +1504,15 @@ export function IntakeDemoView() {
                     setSelectedIntake(prev =>
                       prev ? { ...prev, conversation: segments } : prev
                     );
+                    // Refresh saved transcripts after update
+                    setTimeout(() => loadSavedTranscripts(selectedIntake.id), 1000);
                   }}
                   initialSegments={selectedIntake.conversation}
                   speakerALabel="Lawyer"
                   speakerBLabel="Client"
                   saveAudio
+                  sessionId={selectedIntake.id}
+                  sourceName={`Interview - ${selectedIntake.clientName}`}
                 />
               </CardContent>
             </Card>

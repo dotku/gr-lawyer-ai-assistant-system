@@ -1,9 +1,25 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+let supabaseClient: SupabaseClient | null = null;
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export function isSupabaseConfigured(): boolean {
+  return !!(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+}
+
+export function getSupabaseClient(): SupabaseClient | null {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return null;
+  }
+
+  if (!supabaseClient) {
+    supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+  }
+
+  return supabaseClient;
+}
 
 // Types for our Supabase tables
 export interface Transcript {
@@ -43,6 +59,11 @@ export interface ChatMessage {
 
 // Helper functions for Supabase operations
 export async function saveTranscript(transcript: Omit<Transcript, 'id' | 'created_at' | 'updated_at'>) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('Supabase not configured, cannot save transcript');
+    return null;
+  }
   const { data, error } = await supabase
     .from('transcripts')
     .insert(transcript)
@@ -54,6 +75,11 @@ export async function saveTranscript(transcript: Omit<Transcript, 'id' | 'create
 }
 
 export async function getTranscriptsBySession(sessionId: string) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('Supabase not configured, cannot get transcripts');
+    return [];
+  }
   const { data, error } = await supabase
     .from('transcripts')
     .select('*')
@@ -65,6 +91,11 @@ export async function getTranscriptsBySession(sessionId: string) {
 }
 
 export async function saveChatMessage(message: Omit<ChatMessage, 'id' | 'created_at'>) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('Supabase not configured, cannot save chat message');
+    return null;
+  }
   const { data, error } = await supabase
     .from('chat_messages')
     .insert(message)
@@ -76,6 +107,11 @@ export async function saveChatMessage(message: Omit<ChatMessage, 'id' | 'created
 }
 
 export async function getChatMessages(sessionId: string) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('Supabase not configured, cannot get chat messages');
+    return [];
+  }
   const { data, error } = await supabase
     .from('chat_messages')
     .select('*')
@@ -87,6 +123,11 @@ export async function getChatMessages(sessionId: string) {
 }
 
 export async function uploadFile(bucket: string, path: string, file: File | Blob) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('Supabase not configured, cannot upload file');
+    return null;
+  }
   const { data, error } = await supabase.storage
     .from(bucket)
     .upload(path, file, {
@@ -99,6 +140,11 @@ export async function uploadFile(bucket: string, path: string, file: File | Blob
 }
 
 export async function getFileUrl(bucket: string, path: string) {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.warn('Supabase not configured, cannot get file URL');
+    return null;
+  }
   const { data } = supabase.storage
     .from(bucket)
     .getPublicUrl(path);

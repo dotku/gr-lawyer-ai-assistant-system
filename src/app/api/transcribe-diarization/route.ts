@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { getSupabaseClient, type SpeakerSegment } from '@/lib/supabase';
 
 export const maxDuration = 120; // Allow longer processing time for diarization
 
@@ -29,7 +29,13 @@ interface AssemblyAITranscriptResponse {
   audio_duration: number | null;
 }
 
-async function uploadToSupabase(audioBlob: Blob, fileName: string): Promise<string> {
+async function uploadToSupabase(audioBlob: Blob, fileName: string): Promise<string | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.log('Supabase not configured, skipping audio storage');
+    return null;
+  }
+
   const buffer = Buffer.from(await audioBlob.arrayBuffer());
   const filePath = `recordings/${Date.now()}-${fileName}`;
 
@@ -129,6 +135,51 @@ async function pollTranscription(transcriptId: string): Promise<AssemblyAITransc
   throw new Error('Transcription timed out');
 }
 
+async function saveTranscriptToDb(
+  sessionId: string,
+  sourceName: string,
+  content: string,
+  speakerSegments: SpeakerSegment[],
+  audioUrl: string | null,
+  duration: number | null
+): Promise<string | null> {
+  const supabase = getSupabaseClient();
+  if (!supabase) {
+    console.log('Supabase not configured, skipping transcript save');
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('transcripts')
+      .insert({
+        session_id: sessionId,
+        source_type: 'recording',
+        source_name: sourceName,
+        content: content,
+        speaker_segments: speakerSegments,
+        metadata: {
+          audio_url: audioUrl,
+          duration: duration,
+          provider: 'assemblyai',
+        },
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to save transcript:', error);
+      return null;
+    }
+
+    console.log('Transcript saved with ID:', data.id);
+    return data.id;
+  } catch (error) {
+    console.error('Error saving transcript:', error);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -136,6 +187,8 @@ export async function POST(request: NextRequest) {
     const saveToStorage = formData.get('save') === 'true';
     const speakersExpectedStr = formData.get('speakers_expected') as string | null;
     const speakersExpected = speakersExpectedStr ? parseInt(speakersExpectedStr, 10) : 2;
+    const sessionId = formData.get('session_id') as string | null;
+    const sourceName = formData.get('source_name') as string || 'Recording';
 
     if (!audioFile) {
       return NextResponse.json(
@@ -178,11 +231,11 @@ export async function POST(request: NextRequest) {
 
     // Start transcription with speaker diarization
     console.log('Starting transcription with speaker diarization...');
-    const transcriptId = await startTranscription(assemblyAudioUrl, speakersExpected);
+    const assemblyTranscriptId = await startTranscription(assemblyAudioUrl, speakersExpected);
 
     // Poll for completion
     console.log('Polling for transcription result...');
-    const result = await pollTranscription(transcriptId);
+    const result = await pollTranscription(assemblyTranscriptId);
 
     // Format segments with speaker info
     const segments = result.utterances?.map((utterance, index) => ({
@@ -197,6 +250,30 @@ export async function POST(request: NextRequest) {
     // Get unique speakers
     const speakers = [...new Set(segments.map(s => s.speaker))].sort();
 
+    // Save transcript to database if session_id provided
+    let savedTranscriptId: string | null = null;
+    if (sessionId && result.text) {
+      console.log('Saving transcript to database with session_id:', sessionId);
+      const speakerSegments: SpeakerSegment[] = segments.map(seg => ({
+        speaker: seg.speaker,
+        text: seg.text,
+        start_time: seg.startTime,
+        end_time: seg.endTime,
+      }));
+
+      savedTranscriptId = await saveTranscriptToDb(
+        sessionId,
+        sourceName,
+        result.text,
+        speakerSegments,
+        supabaseAudioUrl,
+        result.audio_duration
+      );
+      console.log('Transcript save result:', savedTranscriptId ? 'Success' : 'Failed or Supabase not configured');
+    } else {
+      console.log('Skipping transcript save - sessionId:', sessionId, 'hasText:', !!result.text);
+    }
+
     return NextResponse.json({
       success: true,
       transcription: result.text,
@@ -206,6 +283,7 @@ export async function POST(request: NextRequest) {
       audioUrl: supabaseAudioUrl,
       duration: result.audio_duration,
       provider: 'assemblyai',
+      transcriptId: savedTranscriptId,
     });
   } catch (error) {
     console.error('Transcription error:', error);
