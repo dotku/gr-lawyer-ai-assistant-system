@@ -62,6 +62,8 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const audioFile = formData.get('audio') as File | null;
     const saveToStorage = formData.get('save') === 'true';
+    const sessionId = formData.get('session_id') as string | null;
+    const sourceName = formData.get('source_name') as string || 'Recording';
 
     if (!audioFile) {
       return NextResponse.json(
@@ -88,7 +90,6 @@ export async function POST(request: NextRequest) {
         console.log('Audio saved to:', audioUrl);
       } catch (error) {
         console.error('Storage upload failed, continuing without save:', error);
-        // Continue with transcription even if storage fails
       }
     }
 
@@ -103,6 +104,49 @@ export async function POST(request: NextRequest) {
       endTime: seg.end,
     })) || [];
 
+    // Save transcript to database if session_id provided
+    let transcriptId: string | null = null;
+    if (sessionId && result.text) {
+      const supabase = getSupabaseClient();
+      if (supabase) {
+        try {
+          const speakerSegments = segments.map((seg: { text: string; startTime: number; endTime: number }) => ({
+            speaker: '',
+            text: seg.text,
+            start_time: seg.startTime,
+            end_time: seg.endTime,
+          }));
+
+          const { data, error } = await supabase
+            .from('transcripts')
+            .insert({
+              session_id: sessionId,
+              source_type: 'recording',
+              source_name: sourceName,
+              content: result.text,
+              speaker_segments: speakerSegments,
+              metadata: {
+                audio_url: audioUrl,
+                duration: result.duration,
+                language: result.language,
+                provider: 'openai',
+              },
+            })
+            .select()
+            .single();
+
+          if (error) {
+            console.error('Failed to save transcript:', error);
+          } else {
+            transcriptId = data.id;
+            console.log('Transcript saved with ID:', transcriptId);
+          }
+        } catch (error) {
+          console.error('Error saving transcript:', error);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
       transcription: result.text,
@@ -111,6 +155,7 @@ export async function POST(request: NextRequest) {
       duration: result.duration,
       language: result.language,
       provider: 'openai',
+      transcriptId,
     });
   } catch (error) {
     console.error('Transcription error:', error);

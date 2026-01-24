@@ -44,6 +44,8 @@ import {
   Download,
   ChevronDown,
   ChevronUp,
+  Mail,
+  Copy,
 } from 'lucide-react';
 
 // Type definitions for mock data
@@ -231,6 +233,7 @@ export function IntakeDemoView() {
   // Saved transcripts state
   const [savedTranscripts, setSavedTranscripts] = useState<Transcript[]>([]);
   const [isLoadingTranscripts, setIsLoadingTranscripts] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
   // Audio playback state
   const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
@@ -265,19 +268,33 @@ export function IntakeDemoView() {
       // Convert saved transcripts to conversation segments for the recorder
       if (data && data.length > 0) {
         const latestTranscript = data[0];
-        if (latestTranscript.speaker_segments && Array.isArray(latestTranscript.speaker_segments)) {
-          const segments: ConversationSegment[] = latestTranscript.speaker_segments.map((seg: SpeakerSegment, index: number) => ({
+        const audioUrl = (latestTranscript.metadata as { audio_url?: string })?.audio_url;
+
+        let segments: ConversationSegment[];
+
+        if (latestTranscript.speaker_segments && Array.isArray(latestTranscript.speaker_segments) && latestTranscript.speaker_segments.length > 0) {
+          // Use timed segments
+          segments = (latestTranscript.speaker_segments as SpeakerSegment[]).map((seg, index) => ({
             id: `saved-${index}`,
-            speaker: seg.speaker,
-            speakerLabel: `Speaker ${seg.speaker}`,
             text: seg.text,
             timestamp: new Date(latestTranscript.created_at),
+            audioUrl,
             startTime: seg.start_time,
             endTime: seg.end_time,
-            audioUrl: (latestTranscript.metadata as { audio_url?: string })?.audio_url,
           }));
+        } else if (latestTranscript.content) {
+          // Fallback to single segment
+          segments = [{
+            id: `saved-0`,
+            text: latestTranscript.content,
+            timestamp: new Date(latestTranscript.created_at),
+            audioUrl,
+          }];
+        } else {
+          segments = [];
+        }
 
-          // Update the intake's conversation with saved segments
+        if (segments.length > 0) {
           setIntakes(prev =>
             prev.map(intake =>
               intake.id === intakeId
@@ -313,6 +330,17 @@ export function IntakeDemoView() {
   const [isDeletingTranscript, setIsDeletingTranscript] = useState<string | null>(null);
   const [expandedTranscriptId, setExpandedTranscriptId] = useState<string | null>(null);
 
+  // Per-transcript summary state
+  const [transcriptSummaries, setTranscriptSummaries] = useState<Record<string, string>>({});
+  const [summarizingTranscriptId, setSummarizingTranscriptId] = useState<string | null>(null);
+
+  // Email draft state
+  const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
+  const [emailCopied, setEmailCopied] = useState(false);
+
   // Format time for SRT format (HH:MM:SS,mmm)
   const formatSrtTime = (seconds: number | null | undefined): string => {
     if (seconds === null || seconds === undefined || !isFinite(seconds) || isNaN(seconds)) {
@@ -325,13 +353,13 @@ export function IntakeDemoView() {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
   };
 
-  // Convert speaker segments to SRT format
+  // Convert segments to SRT format
   const convertToSrt = (segments: SpeakerSegment[]): string => {
     if (!segments || segments.length === 0) return '';
     return segments.map((seg, index) => {
       const startTime = formatSrtTime(seg.start_time);
       const endTime = formatSrtTime(seg.end_time);
-      return `${index + 1}\n${startTime} --> ${endTime}\n[Speaker ${seg.speaker}]: ${seg.text}\n`;
+      return `${index + 1}\n${startTime} --> ${endTime}\n${seg.text}\n`;
     }).join('\n');
   };
 
@@ -339,7 +367,20 @@ export function IntakeDemoView() {
   const handleDownloadSrt = (transcript: Transcript) => {
     const segments = transcript.speaker_segments as SpeakerSegment[] | null;
     if (!segments || segments.length === 0) {
-      alert('No speaker segments available for this transcript');
+      // Fallback: download as plain text if no segments
+      if (!transcript.content) {
+        alert('No transcript content available');
+        return;
+      }
+      const blob = new Blob([transcript.content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${transcript.source_name.replace(/[^a-z0-9]/gi, '_')}_${new Date(transcript.created_at).toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       return;
     }
     const srtContent = convertToSrt(segments);
@@ -352,6 +393,170 @@ export function IntakeDemoView() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  // Summarize a single transcript
+  const handleSummarizeTranscript = async (transcript: Transcript) => {
+    if (!transcript.content) return;
+
+    setSummarizingTranscriptId(transcript.id);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [],
+          context: transcript.content,
+          action: 'summarize',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate summary');
+      }
+
+      const data = await response.json();
+      const summary = data.summary || data.response || 'Failed to generate summary.';
+
+      setTranscriptSummaries(prev => ({
+        ...prev,
+        [transcript.id]: summary,
+      }));
+    } catch (error) {
+      console.error('Transcript summary error:', error);
+      alert('Failed to generate summary. Please check your API configuration.');
+    } finally {
+      setSummarizingTranscriptId(null);
+    }
+  };
+
+  // Draft confirmation email
+  const handleDraftEmail = async () => {
+    if (!selectedIntake) return;
+
+    setIsEmailDialogOpen(true);
+    setIsGeneratingEmail(true);
+    setEmailCopied(false);
+
+    // Gather context for email generation
+    const contextParts: string[] = [
+      `Client Name: ${selectedIntake.clientName}`,
+      `Client Email: ${selectedIntake.clientEmail}`,
+      `Category: ${selectedIntake.category || 'General Legal'}`,
+      `Intake Number: ${selectedIntake.intakeNumber}`,
+    ];
+
+    if (selectedIntake.schedules.length > 0) {
+      const schedulesText = selectedIntake.schedules
+        .map((s) => `- ${s.title}: ${s.date.toLocaleDateString()} at ${s.time} (${s.type}${s.meetingLink ? `, link: ${s.meetingLink}` : ''})`)
+        .join('\n');
+      contextParts.push(`\nScheduled Meetings:\n${schedulesText}`);
+    }
+
+    if (selectedIntake.notices.length > 0) {
+      const noticesText = selectedIntake.notices
+        .map((n) => `- ${n.content}`)
+        .join('\n');
+      contextParts.push(`\nNotices:\n${noticesText}`);
+    }
+
+    if (selectedIntake.summary) {
+      contextParts.push(`\nCase Summary:\n${selectedIntake.summary}`);
+    }
+
+    const context = contextParts.join('\n');
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: 'user',
+              content: `Based on the provided intake information, draft a professional confirmation email to the client. The email should:
+1. Address the client by name
+2. Confirm their intake has been received
+3. Mention their case category
+4. Include any scheduled meeting details (dates, times, links)
+5. Be professional, concise, and friendly
+6. End with appropriate next steps
+
+Please respond in this exact format:
+SUBJECT: [email subject line]
+---
+[email body]`,
+            },
+          ],
+          context,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate email');
+      }
+
+      const data = await response.json();
+      const emailContent = data.response || data.summary || '';
+
+      // Parse subject and body from response
+      const subjectMatch = emailContent.match(/SUBJECT:\s*(.+?)(?:\n|---)/);
+      const bodyMatch = emailContent.split('---');
+
+      if (subjectMatch) {
+        setEmailSubject(subjectMatch[1].trim());
+      } else {
+        setEmailSubject(`Intake Confirmation - ${selectedIntake.intakeNumber}`);
+      }
+
+      if (bodyMatch.length > 1) {
+        setEmailBody(bodyMatch.slice(1).join('---').trim());
+      } else {
+        setEmailBody(emailContent);
+      }
+    } catch (error) {
+      console.error('Email generation error:', error);
+      // Fallback to a simple template
+      setEmailSubject(`Intake Confirmation - ${selectedIntake.intakeNumber}`);
+      setEmailBody(
+        `Dear ${selectedIntake.clientName},\n\n` +
+        `Thank you for contacting us regarding your ${selectedIntake.category || 'legal'} matter. ` +
+        `We have received your intake (Reference: ${selectedIntake.intakeNumber}) and a member of our team will be in touch shortly.\n\n` +
+        (selectedIntake.schedules.length > 0
+          ? `Your next scheduled appointment:\n${selectedIntake.schedules.map(s => `- ${s.title}: ${s.date.toLocaleDateString()} at ${s.time}`).join('\n')}\n\n`
+          : '') +
+        `If you have any questions in the meantime, please do not hesitate to reach out.\n\n` +
+        `Best regards,\n[Your Name]`
+      );
+    } finally {
+      setIsGeneratingEmail(false);
+    }
+  };
+
+  const handleCopyEmail = async () => {
+    const fullEmail = `Subject: ${emailSubject}\n\n${emailBody}`;
+    try {
+      await navigator.clipboard.writeText(fullEmail);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    } catch {
+      // Fallback for browsers that don't support clipboard API
+      const textArea = document.createElement('textarea');
+      textArea.value = fullEmail;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setEmailCopied(true);
+      setTimeout(() => setEmailCopied(false), 2000);
+    }
+  };
+
+  const handleOpenInEmail = () => {
+    if (!selectedIntake) return;
+    const mailto = `mailto:${encodeURIComponent(selectedIntake.clientEmail)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
+    window.open(mailto, '_blank');
   };
 
   // Audio playback functions
@@ -666,20 +871,114 @@ export function IntakeDemoView() {
     setNoteContent('');
   };
 
-  const handleGenerateSummary = () => {
+  const handleGenerateSummary = async () => {
     if (!selectedIntake) return;
 
-    const summary = `Client ${selectedIntake.clientName} has contacted regarding ${
-      selectedIntake.category || 'legal matters'
-    }. Initial intake completed with ${selectedIntake.questions.length} questions addressed and ${
-      selectedIntake.schedules.length
-    } meetings scheduled.`;
+    // Gather transcription content from saved transcripts and current conversation
+    const transcriptTexts: string[] = [];
 
-    setIntakes(prev =>
-      prev.map(i => (i.id === selectedIntake.id ? { ...i, summary } : i))
-    );
+    // Add saved transcript content
+    savedTranscripts.forEach((t) => {
+      if (t.content) {
+        transcriptTexts.push(t.content);
+      }
+    });
 
-    setSelectedIntake((prev) => prev ? ({ ...prev, summary }) : null);
+    // Add current conversation segments
+    selectedIntake.conversation.forEach((seg) => {
+      if (seg.text) {
+        transcriptTexts.push(seg.text);
+      }
+    });
+
+    // Add notices
+    if (selectedIntake.notices.length > 0) {
+      const noticesText = selectedIntake.notices
+        .map((n) => `${n.isStarred ? '[IMPORTANT] ' : ''}${n.content}`)
+        .join('\n');
+      transcriptTexts.push(`Notices:\n${noticesText}`);
+    }
+
+    // Add questions and answers
+    if (selectedIntake.questions.length > 0) {
+      const qaText = selectedIntake.questions
+        .map((q) => `Q: ${q.question}${q.answer ? `\nA: ${q.answer}` : ''}`)
+        .join('\n');
+      transcriptTexts.push(`Questions:\n${qaText}`);
+    }
+
+    // Add notes
+    if (selectedIntake.notes.length > 0) {
+      const notesText = selectedIntake.notes
+        .map((n) => n.content)
+        .join('\n');
+      transcriptTexts.push(`Notes:\n${notesText}`);
+    }
+
+    // Add schedules
+    if (selectedIntake.schedules.length > 0) {
+      const schedulesText = selectedIntake.schedules
+        .map((s) => `${s.title} - ${s.date.toLocaleDateString()} at ${s.time} (${s.type})`)
+        .join('\n');
+      transcriptTexts.push(`Scheduled Meetings:\n${schedulesText}`);
+    }
+
+    // Add per-transcript summaries if available
+    const existingSummaries = savedTranscripts
+      .filter((t) => transcriptSummaries[t.id])
+      .map((t) => transcriptSummaries[t.id]);
+    if (existingSummaries.length > 0) {
+      transcriptTexts.push(`Individual Recording Summaries:\n${existingSummaries.join('\n---\n')}`);
+    }
+
+    const context = [
+      `Client: ${selectedIntake.clientName}`,
+      `Category: ${selectedIntake.category || 'General Legal'}`,
+      `Intake Number: ${selectedIntake.intakeNumber}`,
+      '',
+      ...transcriptTexts,
+    ].join('\n');
+
+    if (transcriptTexts.length === 0) {
+      // No transcription data available, show message
+      const summary = `No transcription or notes available to summarize. Record an interview or add notes first.`;
+      setIntakes(prev =>
+        prev.map(i => (i.id === selectedIntake.id ? { ...i, summary } : i))
+      );
+      setSelectedIntake((prev) => prev ? ({ ...prev, summary }) : null);
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [],
+          context,
+          action: 'summarize',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate summary');
+      }
+
+      const data = await response.json();
+      const summary = data.summary || data.response || 'Failed to generate summary.';
+
+      setIntakes(prev =>
+        prev.map(i => (i.id === selectedIntake.id ? { ...i, summary } : i))
+      );
+      setSelectedIntake((prev) => prev ? ({ ...prev, summary }) : null);
+    } catch (error) {
+      console.error('Summary generation error:', error);
+      alert('Failed to generate summary. Please check your API configuration.');
+    } finally {
+      setIsGeneratingSummary(false);
+    }
   };
 
   const handleConvertToCase = () => {
@@ -1416,14 +1715,12 @@ export function IntakeDemoView() {
                               </div>
                             ) : (
                               <div className="mt-3">
-                                {/* SRT format display */}
                                 {transcript.speaker_segments && Array.isArray(transcript.speaker_segments) && transcript.speaker_segments.length > 0 ? (
                                   <div className="space-y-2">
-                                    {/* Show first 2 segments as preview or all if expanded */}
                                     <div className="font-mono text-xs bg-gray-50 dark:bg-gray-800 rounded p-2 space-y-2 max-h-48 overflow-y-auto">
                                       {(expandedTranscriptId === transcript.id
                                         ? transcript.speaker_segments
-                                        : transcript.speaker_segments.slice(0, 2)
+                                        : transcript.speaker_segments.slice(0, 3)
                                       ).map((seg: SpeakerSegment, idx: number) => (
                                         <div key={idx} className="border-b border-gray-200 dark:border-gray-700 pb-2 last:border-0 last:pb-0">
                                           <div className="text-gray-400 dark:text-gray-500">
@@ -1433,14 +1730,13 @@ export function IntakeDemoView() {
                                             {formatSrtTime(seg.start_time)} --&gt; {formatSrtTime(seg.end_time)}
                                           </div>
                                           <div className="text-gray-700 dark:text-gray-300">
-                                            <span className="text-green-600 dark:text-green-400 font-medium">[Speaker {seg.speaker}]:</span> {seg.text}
+                                            {seg.text}
                                           </div>
                                         </div>
                                       ))}
                                     </div>
 
-                                    {/* Show expand/collapse if more than 2 segments */}
-                                    {transcript.speaker_segments.length > 2 && (
+                                    {transcript.speaker_segments.length > 3 && (
                                       <Button
                                         variant="ghost"
                                         size="sm"
@@ -1463,23 +1759,105 @@ export function IntakeDemoView() {
                                       </Button>
                                     )}
 
-                                    {/* Download SRT button */}
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 text-xs"
-                                      onClick={() => handleDownloadSrt(transcript)}
-                                    >
-                                      <Download className="h-3 w-3 mr-1" />
-                                      Download SRT
-                                    </Button>
+                                    <div className="flex gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => handleDownloadSrt(transcript)}
+                                      >
+                                        <Download className="h-3 w-3 mr-1" />
+                                        Download SRT
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => handleSummarizeTranscript(transcript)}
+                                        disabled={summarizingTranscriptId === transcript.id}
+                                      >
+                                        {summarizingTranscriptId === transcript.id ? (
+                                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        ) : (
+                                          <Sparkles className="h-3 w-3 mr-1" />
+                                        )}
+                                        {transcriptSummaries[transcript.id] ? 'Re-summarize' : 'Summarize'}
+                                      </Button>
+                                    </div>
+
+                                    {transcriptSummaries[transcript.id] && (
+                                      <div className="p-2 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded text-xs">
+                                        <p className="text-indigo-700 dark:text-indigo-300 font-medium mb-1">Summary:</p>
+                                        <p className="text-indigo-900 dark:text-indigo-100 whitespace-pre-wrap">{transcriptSummaries[transcript.id]}</p>
+                                      </div>
+                                    )}
                                   </div>
                                 ) : transcript.content ? (
-                                  <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-                                    {transcript.content.length > 200
-                                      ? `${transcript.content.substring(0, 200)}...`
-                                      : transcript.content}
-                                  </p>
+                                  <div className="space-y-2">
+                                    <p className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded p-2 max-h-48 overflow-y-auto whitespace-pre-wrap">
+                                      {expandedTranscriptId === transcript.id
+                                        ? transcript.content
+                                        : transcript.content.length > 200
+                                          ? `${transcript.content.substring(0, 200)}...`
+                                          : transcript.content}
+                                    </p>
+
+                                    {transcript.content.length > 200 && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 text-xs w-full"
+                                        onClick={() => setExpandedTranscriptId(
+                                          expandedTranscriptId === transcript.id ? null : transcript.id
+                                        )}
+                                      >
+                                        {expandedTranscriptId === transcript.id ? (
+                                          <>
+                                            <ChevronUp className="h-3 w-3 mr-1" />
+                                            Show less
+                                          </>
+                                        ) : (
+                                          <>
+                                            <ChevronDown className="h-3 w-3 mr-1" />
+                                            Show full transcript
+                                          </>
+                                        )}
+                                      </Button>
+                                    )}
+
+                                    <div className="flex gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => handleDownloadSrt(transcript)}
+                                      >
+                                        <Download className="h-3 w-3 mr-1" />
+                                        Download
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => handleSummarizeTranscript(transcript)}
+                                        disabled={summarizingTranscriptId === transcript.id}
+                                      >
+                                        {summarizingTranscriptId === transcript.id ? (
+                                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                        ) : (
+                                          <Sparkles className="h-3 w-3 mr-1" />
+                                        )}
+                                        {transcriptSummaries[transcript.id] ? 'Re-summarize' : 'Summarize'}
+                                      </Button>
+                                    </div>
+
+                                    {transcriptSummaries[transcript.id] && (
+                                      <div className="p-2 bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded text-xs">
+                                        <p className="text-indigo-700 dark:text-indigo-300 font-medium mb-1">Summary:</p>
+                                        <p className="text-indigo-900 dark:text-indigo-100 whitespace-pre-wrap">{transcriptSummaries[transcript.id]}</p>
+                                      </div>
+                                    )}
+                                  </div>
                                 ) : null}
                               </div>
                             )}
@@ -1508,8 +1886,6 @@ export function IntakeDemoView() {
                     setTimeout(() => loadSavedTranscripts(selectedIntake.id), 1000);
                   }}
                   initialSegments={selectedIntake.conversation}
-                  speakerALabel="Lawyer"
-                  speakerBLabel="Client"
                   saveAudio
                   sessionId={selectedIntake.id}
                   sourceName={`Interview - ${selectedIntake.clientName}`}
@@ -1526,18 +1902,33 @@ export function IntakeDemoView() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {selectedIntake.summary ? (
+                {isGeneratingSummary ? (
+                  <div className="p-4 bg-secondary/50 rounded-md flex items-center gap-3">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">
+                      Analyzing transcription and generating summary...
+                    </p>
+                  </div>
+                ) : selectedIntake.summary ? (
                   <div className="p-4 bg-secondary/50 rounded-md">
-                    <p className="text-sm">{selectedIntake.summary}</p>
+                    <p className="text-sm whitespace-pre-wrap">{selectedIntake.summary}</p>
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    No summary generated yet
+                    No summary generated yet. Record an interview or add notes, then generate a summary.
                   </p>
                 )}
 
-                <Button onClick={handleGenerateSummary} variant="outline">
-                  <Sparkles className="h-4 w-4 mr-2" />
+                <Button
+                  onClick={handleGenerateSummary}
+                  variant="outline"
+                  disabled={isGeneratingSummary}
+                >
+                  {isGeneratingSummary ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4 mr-2" />
+                  )}
                   {selectedIntake.summary ? 'Regenerate' : 'Generate'} Summary
                 </Button>
               </CardContent>
@@ -1567,10 +1958,14 @@ export function IntakeDemoView() {
                 <Button
                   variant="outline"
                   className="w-full"
-                  onClick={() =>
-                    alert('Draft Confirmation Email - would open email composer')
-                  }
+                  onClick={handleDraftEmail}
+                  disabled={isGeneratingEmail}
                 >
+                  {isGeneratingEmail ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Mail className="h-4 w-4 mr-2" />
+                  )}
                   Draft Confirmation Email
                 </Button>
                 <Button
@@ -1683,6 +2078,86 @@ export function IntakeDemoView() {
             >
               <Plus className="h-4 w-4 mr-2" />
               Create Intake
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Email Draft Dialog */}
+      <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" />
+              Draft Confirmation Email
+            </DialogTitle>
+            <DialogDescription>
+              {selectedIntake && (
+                <>To: <span className="font-medium">{selectedIntake.clientEmail}</span></>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isGeneratingEmail ? (
+            <div className="flex items-center justify-center py-12 gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Generating email draft...</p>
+            </div>
+          ) : (
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="emailSubject" className="text-sm font-medium">
+                  Subject
+                </Label>
+                <Input
+                  id="emailSubject"
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  placeholder="Email subject..."
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="emailBody" className="text-sm font-medium">
+                  Body
+                </Label>
+                <Textarea
+                  id="emailBody"
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  className="min-h-[250px] font-mono text-sm"
+                  placeholder="Email body..."
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={handleCopyEmail}
+              disabled={isGeneratingEmail || !emailBody}
+              className="gap-2"
+            >
+              {emailCopied ? (
+                <>
+                  <Check className="h-4 w-4" />
+                  Copied!
+                </>
+              ) : (
+                <>
+                  <Copy className="h-4 w-4" />
+                  Copy to Clipboard
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={handleOpenInEmail}
+              disabled={isGeneratingEmail || !emailBody}
+              className="gap-2"
+            >
+              <Mail className="h-4 w-4" />
+              Open in Email Client
             </Button>
           </DialogFooter>
         </DialogContent>
