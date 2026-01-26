@@ -202,5 +202,40 @@
     "passwordMismatch": "Passwords do not match",
     "minLength": "Minimum length is {min} characters",
     "generic": "Something went wrong. Please try again."
+  },
+  "settings": {
+    "title": "Settings",
+    "billingRates": {
+      "title": "Billing Rates",
+      "totalRates": "Total Rates",
+      "lawyers": "Lawyers",
+      "assistants": "Assistants",
+      "vendors": "Vendors",
+      "all": "All",
+      "active": "Active",
+      "inactive": "Inactive",
+      "perHour": "per hour",
+      "addRate": "Add Rate",
+      "editRate": "Edit Rate",
+      "addFirst": "Add your first billing rate",
+      "addDescription": "Create a new billing rate for a lawyer, assistant, or vendor.",
+      "editDescription": "Update the billing rate information.",
+      "searchPlaceholder": "Search by name or email...",
+      "noRates": "No billing rates found. Add your first rate to get started.",
+      "noSearchResults": "No billing rates match your search.",
+      "form": {
+        "name": "Name",
+        "type": "Type",
+        "status": "Status",
+        "hourlyRate": "Hourly Rate",
+        "currency": "Currency",
+        "email": "Email",
+        "phone": "Phone",
+        "notes": "Notes",
+        "cancel": "Cancel",
+        "save": "Save Changes",
+        "create": "Create Rate"
+      }
+    }
   }
 }

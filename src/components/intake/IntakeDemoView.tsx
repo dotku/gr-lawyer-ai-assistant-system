@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLocale } from 'next-intl';
+import Link from 'next/link';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +20,14 @@ import {
 import { Label } from '@/components/ui/label';
 import { VoiceInput, TranscriptionResult } from '@/components/ui/voice-input';
 import { ConversationRecorder, ConversationSegment } from '@/components/ui/conversation-recorder';
-import { getSupabaseClient, type Transcript, type SpeakerSegment } from '@/lib/supabase';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { getSupabaseClient, type Transcript, type SpeakerSegment, type BillingRate, getBillingRates } from '@/lib/supabase';
 import {
   Search,
   Plus,
@@ -46,6 +54,13 @@ import {
   ChevronUp,
   Mail,
   Copy,
+  DollarSign,
+  Calculator,
+  User,
+  Users,
+  Building2,
+  Home,
+  Settings,
 } from 'lucide-react';
 
 // Type definitions for mock data
@@ -85,6 +100,19 @@ interface MockRecording {
   name: string;
   audioUrl: string;
   transcription: string;
+  createdAt: Date;
+}
+
+interface ChargeEntry {
+  id: string;
+  billingRateId: string;
+  personName: string;
+  personType: 'lawyer' | 'assistant' | 'vendor';
+  hourlyRate: number;
+  currency: string;
+  hours: number;
+  description: string;
+  total: number;
   createdAt: Date;
 }
 
@@ -341,6 +369,17 @@ export function IntakeDemoView() {
   const [isGeneratingEmail, setIsGeneratingEmail] = useState(false);
   const [emailCopied, setEmailCopied] = useState(false);
 
+  // Charge tracking state
+  const [chargeEntries, setChargeEntries] = useState<ChargeEntry[]>([]);
+  const [billingRates, setBillingRates] = useState<BillingRate[]>([]);
+  const [selectedRateId, setSelectedRateId] = useState<string>('');
+  const [chargeHours, setChargeHours] = useState('');
+  const [chargeDescription, setChargeDescription] = useState('');
+  const [isAutoComputing, setIsAutoComputing] = useState(false);
+  const [editingChargeId, setEditingChargeId] = useState<string | null>(null);
+  const [editingChargeHours, setEditingChargeHours] = useState('');
+  const [editingChargeDescription, setEditingChargeDescription] = useState('');
+
   // Format time for SRT format (HH:MM:SS,mmm)
   const formatSrtTime = (seconds: number | null | undefined): string => {
     if (seconds === null || seconds === undefined || !isFinite(seconds) || isNaN(seconds)) {
@@ -557,6 +596,254 @@ SUBJECT: [email subject line]
     if (!selectedIntake) return;
     const mailto = `mailto:${encodeURIComponent(selectedIntake.clientEmail)}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
     window.open(mailto, '_blank');
+  };
+
+  // Load billing rates from localStorage
+  useEffect(() => {
+    const rates = getBillingRates();
+    setBillingRates(rates.filter(r => r.isActive));
+  }, []);
+
+  const handleAddCharge = () => {
+    if (!selectedRateId || !chargeHours || parseFloat(chargeHours) <= 0) return;
+
+    const rate = billingRates.find(r => r.id === selectedRateId);
+    if (!rate) return;
+
+    const hours = parseFloat(chargeHours);
+    const newEntry: ChargeEntry = {
+      id: `charge-${Date.now()}`,
+      billingRateId: rate.id,
+      personName: rate.name,
+      personType: rate.type,
+      hourlyRate: rate.hourlyRate,
+      currency: rate.currency,
+      hours,
+      description: chargeDescription || `${rate.type === 'lawyer' ? 'Legal' : rate.type === 'assistant' ? 'Support' : 'Vendor'} services`,
+      total: rate.hourlyRate * hours,
+      createdAt: new Date(),
+    };
+
+    setChargeEntries(prev => [...prev, newEntry]);
+    setSelectedRateId('');
+    setChargeHours('');
+    setChargeDescription('');
+  };
+
+  const handleRemoveCharge = (chargeId: string) => {
+    setChargeEntries(prev => prev.filter(c => c.id !== chargeId));
+  };
+
+  const handleStartEditCharge = (entry: ChargeEntry) => {
+    setEditingChargeId(entry.id);
+    setEditingChargeHours(entry.hours.toString());
+    setEditingChargeDescription(entry.description);
+  };
+
+  const handleSaveEditCharge = (chargeId: string) => {
+    const hours = parseFloat(editingChargeHours);
+    if (!hours || hours <= 0) return;
+
+    setChargeEntries(prev =>
+      prev.map(c =>
+        c.id === chargeId
+          ? { ...c, hours, description: editingChargeDescription || c.description, total: c.hourlyRate * hours }
+          : c
+      )
+    );
+    setEditingChargeId(null);
+    setEditingChargeHours('');
+    setEditingChargeDescription('');
+  };
+
+  const handleCancelEditCharge = () => {
+    setEditingChargeId(null);
+    setEditingChargeHours('');
+    setEditingChargeDescription('');
+  };
+
+  const handleAutoComputeCharges = async () => {
+    if (!selectedIntake) return;
+    if (billingRates.length === 0) {
+      alert('No billing rates configured. Please add billing rates in Settings first.');
+      return;
+    }
+
+    setIsAutoComputing(true);
+
+    // Build context about the intake process
+    const contextParts: string[] = [
+      `Client: ${selectedIntake.clientName}`,
+      `Category: ${selectedIntake.category || 'General Legal'}`,
+      `Intake Number: ${selectedIntake.intakeNumber}`,
+    ];
+
+    // Meetings held
+    if (selectedIntake.schedules.length > 0) {
+      contextParts.push(`\nMeetings scheduled (${selectedIntake.schedules.length}):`);
+      selectedIntake.schedules.forEach(s => {
+        contextParts.push(`- ${s.title} on ${s.date.toLocaleDateString()} at ${s.time} (${s.type})`);
+      });
+    }
+
+    // Notices
+    if (selectedIntake.notices.length > 0) {
+      contextParts.push(`\nNotices (${selectedIntake.notices.length}):`);
+      selectedIntake.notices.forEach(n => {
+        contextParts.push(`- ${n.isStarred ? '[IMPORTANT] ' : ''}${n.content}`);
+      });
+    }
+
+    // Questions answered
+    const answeredQuestions = selectedIntake.questions.filter(q => q.answer);
+    if (selectedIntake.questions.length > 0) {
+      contextParts.push(`\nQuestions (${selectedIntake.questions.length} total, ${answeredQuestions.length} answered):`);
+      selectedIntake.questions.forEach(q => {
+        contextParts.push(`- Q: ${q.question}${q.answer ? ` | A: ${q.answer}` : ' (unanswered)'}`);
+      });
+    }
+
+    // Notes
+    if (selectedIntake.notes.length > 0) {
+      contextParts.push(`\nNotes (${selectedIntake.notes.length}):`);
+      selectedIntake.notes.forEach(n => {
+        contextParts.push(`- ${n.content}`);
+      });
+    }
+
+    // Recordings/transcripts
+    if (savedTranscripts.length > 0) {
+      contextParts.push(`\nRecordings/Transcriptions (${savedTranscripts.length}):`);
+      savedTranscripts.forEach(t => {
+        const duration = (t.metadata as { duration?: number })?.duration;
+        contextParts.push(`- ${t.source_name}: ${duration ? `${Math.round(duration / 60)} min` : 'unknown duration'}`);
+        if (t.content) {
+          contextParts.push(`  Content preview: ${t.content.substring(0, 200)}...`);
+        }
+      });
+    }
+
+    // Summary if available
+    if (selectedIntake.summary) {
+      contextParts.push(`\nCase Summary:\n${selectedIntake.summary}`);
+    }
+
+    // Available billing rates (include IDs so AI can reference them)
+    const ratesDescription = billingRates.map(r =>
+      `- ID: "${r.id}" | Name: ${r.name} | Type: ${r.type} | Rate: ${r.currency} ${r.hourlyRate}/hr`
+    ).join('\n');
+    contextParts.push(`\nAvailable billing rates:\n${ratesDescription}`);
+
+    // Existing charges
+    if (chargeEntries.length > 0) {
+      contextParts.push(`\nExisting charges:`);
+      chargeEntries.forEach(c => {
+        contextParts.push(`- ${c.personName}: ${c.hours}h @ ${c.currency} ${c.hourlyRate}/hr = ${c.currency} ${c.total.toFixed(2)} (${c.description})`);
+      });
+    }
+
+    const context = contextParts.join('\n');
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            {
+              role: 'user',
+              content: `Based on the intake process data provided, estimate the billable hours for each available person (lawyer, assistant, vendor). Consider:
+- Meeting preparation and attendance time
+- Document review and preparation
+- Client communication (emails, calls)
+- Recording/transcription review time
+- Case research and analysis
+- Administrative tasks
+
+For each person from the available billing rates, provide an estimated hours allocation. Be realistic and conservative.
+
+IMPORTANT: You MUST use the exact ID values from the "Available billing rates" list in the context. Each rate has an "ID" field - use that exact string as the billingRateId.
+
+Respond ONLY in this exact JSON format (no markdown, no code blocks, no extra text):
+[{"billingRateId":"<exact ID from the list>","hours":<number>,"description":"<brief description of work>"}]
+
+If a person doesn't need to be charged, don't include them. Only include people from the available billing rates list.`,
+            },
+          ],
+          context,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to compute charges');
+      }
+
+      const data = await response.json();
+      const responseText = data.response || data.summary || '';
+
+      // Parse the JSON response - strip markdown code blocks if present
+      const cleanedText = responseText.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '');
+      const jsonMatch = cleanedText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]) as Array<{
+          billingRateId: string;
+          hours: number;
+          description: string;
+        }>;
+
+        const newEntries: ChargeEntry[] = [];
+        parsed.forEach(item => {
+          // Match by ID first, then fallback to name match
+          const rate = billingRates.find(r => r.id === item.billingRateId)
+            || billingRates.find(r => r.name.toLowerCase() === (item.billingRateId || '').toLowerCase())
+            || billingRates.find(r => (item as { name?: string }).name && r.name.toLowerCase() === (item as { name?: string }).name!.toLowerCase());
+          if (rate && item.hours > 0) {
+            newEntries.push({
+              id: `charge-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+              billingRateId: rate.id,
+              personName: rate.name,
+              personType: rate.type,
+              hourlyRate: rate.hourlyRate,
+              currency: rate.currency,
+              hours: item.hours,
+              description: item.description || 'AI-estimated work',
+              total: rate.hourlyRate * item.hours,
+              createdAt: new Date(),
+            });
+          }
+        });
+
+        if (newEntries.length > 0) {
+          setChargeEntries(prev => [...prev, ...newEntries]);
+        } else {
+          alert('AI could not estimate charges. Please add charges manually.');
+        }
+      } else {
+        alert('Failed to parse AI response. Please add charges manually.');
+      }
+    } catch (error) {
+      console.error('Auto-compute charges error:', error);
+      alert('Failed to auto-compute charges. Please check your API configuration.');
+    } finally {
+      setIsAutoComputing(false);
+    }
+  };
+
+  const getChargeTotal = () => {
+    // Group totals by currency
+    const totals: Record<string, number> = {};
+    chargeEntries.forEach(c => {
+      totals[c.currency] = (totals[c.currency] || 0) + c.total;
+    });
+    return totals;
+  };
+
+  const getTypeIcon = (type: 'lawyer' | 'assistant' | 'vendor') => {
+    switch (type) {
+      case 'lawyer': return <User className="h-3 w-3" />;
+      case 'assistant': return <Users className="h-3 w-3" />;
+      case 'vendor': return <Building2 className="h-3 w-3" />;
+    }
   };
 
   // Audio playback functions
@@ -1052,10 +1339,29 @@ SUBJECT: [email subject line]
 
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Demo Banner */}
-      <div className="bg-primary text-primary-foreground px-4 py-2 text-center text-sm">
-        <span className="font-medium">Demo Mode</span> - This is a fully interactive demo. All data is stored locally and will reset on page refresh.
-        <span className="hidden md:inline"> Try adding meetings, notices, questions, and notes!</span>
+      {/* Top Navigation Bar */}
+      <div className="bg-white dark:bg-gray-900 border-b border-border px-4 py-2 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/${locale}`}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Home className="h-4 w-4" />
+            <span className="hidden sm:inline">Home</span>
+          </Link>
+          <span className="text-muted-foreground/40">|</span>
+          <span className="text-sm font-medium">Intake Inbox</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground hidden sm:inline">Demo Mode</span>
+          <Link
+            href={`/${locale}/settings`}
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Settings className="h-4 w-4" />
+            <span className="hidden sm:inline">Settings</span>
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
@@ -1931,6 +2237,225 @@ SUBJECT: [email subject line]
                   )}
                   {selectedIntake.summary ? 'Regenerate' : 'Generate'} Summary
                 </Button>
+              </CardContent>
+            </Card>
+
+            {/* Charge Tracking */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between text-lg">
+                  <div className="flex items-center">
+                    <DollarSign className="mr-2 h-5 w-5" />
+                    Charges
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAutoComputeCharges}
+                    disabled={isAutoComputing || billingRates.length === 0}
+                    className="gap-2"
+                  >
+                    {isAutoComputing ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Calculator className="h-4 w-4" />
+                    )}
+                    AI Auto-Compute
+                  </Button>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Existing charge entries */}
+                {chargeEntries.length > 0 ? (
+                  <div className="space-y-2">
+                    {chargeEntries.map((entry) =>
+                      editingChargeId === entry.id ? (
+                        <div key={entry.id} className="p-3 bg-secondary/50 rounded-md space-y-2 border-2 border-primary/30">
+                          <div className="flex items-center gap-2">
+                            <div
+                              className={`p-1.5 rounded-full shrink-0 ${
+                                entry.personType === 'lawyer'
+                                  ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-400'
+                                  : entry.personType === 'assistant'
+                                  ? 'bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-400'
+                                  : 'bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-400'
+                              }`}
+                            >
+                              {getTypeIcon(entry.personType)}
+                            </div>
+                            <p className="text-sm font-medium">{entry.personName}</p>
+                            <span className="text-xs text-muted-foreground">
+                              ({new Intl.NumberFormat('en-US', { style: 'currency', currency: entry.currency }).format(entry.hourlyRate)}/hr)
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-[1fr_auto] gap-2">
+                            <Input
+                              placeholder="Description"
+                              value={editingChargeDescription}
+                              onChange={(e) => setEditingChargeDescription(e.target.value)}
+                              className="text-sm h-8"
+                            />
+                            <Input
+                              type="number"
+                              min="0.25"
+                              step="0.25"
+                              placeholder="Hours"
+                              value={editingChargeHours}
+                              onChange={(e) => setEditingChargeHours(e.target.value)}
+                              className="text-sm h-8 w-24"
+                            />
+                          </div>
+                          {editingChargeHours && parseFloat(editingChargeHours) > 0 && (
+                            <p className="text-xs text-muted-foreground text-right">
+                              Subtotal: {new Intl.NumberFormat('en-US', { style: 'currency', currency: entry.currency }).format(entry.hourlyRate * parseFloat(editingChargeHours))}
+                            </p>
+                          )}
+                          <div className="flex gap-2 justify-end">
+                            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleCancelEditCharge}>
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => handleSaveEditCharge(entry.id)}
+                              disabled={!editingChargeHours || parseFloat(editingChargeHours) <= 0}
+                            >
+                              <Check className="h-3 w-3 mr-1" />
+                              Save
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          key={entry.id}
+                          className="flex items-center justify-between p-3 bg-secondary/50 rounded-md"
+                        >
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div
+                              className={`p-1.5 rounded-full shrink-0 ${
+                                entry.personType === 'lawyer'
+                                  ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-400'
+                                  : entry.personType === 'assistant'
+                                  ? 'bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-400'
+                                  : 'bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-400'
+                              }`}
+                            >
+                              {getTypeIcon(entry.personType)}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium truncate">{entry.personName}</p>
+                              <p className="text-xs text-muted-foreground truncate">{entry.description}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <div className="text-right">
+                              <p className="text-sm font-semibold">
+                                {new Intl.NumberFormat('en-US', { style: 'currency', currency: entry.currency }).format(entry.total)}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {entry.hours}h @ {new Intl.NumberFormat('en-US', { style: 'currency', currency: entry.currency }).format(entry.hourlyRate)}/hr
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                              onClick={() => handleStartEditCharge(entry)}
+                            >
+                              <Edit2 className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                              onClick={() => handleRemoveCharge(entry.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      )
+                    )}
+
+                    {/* Total */}
+                    <div className="border-t pt-3 mt-3">
+                      {Object.entries(getChargeTotal()).map(([currency, total]) => (
+                        <div key={currency} className="flex items-center justify-between">
+                          <p className="text-sm font-medium">Total</p>
+                          <p className="text-lg font-bold">
+                            {new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(total)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    {billingRates.length === 0
+                      ? 'No billing rates configured. Add rates in Settings to start tracking charges.'
+                      : 'No charges added yet. Add manually or use AI Auto-Compute.'}
+                  </p>
+                )}
+
+                {/* Add charge form */}
+                {billingRates.length > 0 && (
+                  <div className="space-y-3 pt-2 border-t">
+                    <p className="text-sm font-medium text-muted-foreground">Add Charge</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <Select value={selectedRateId} onValueChange={setSelectedRateId}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select person..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {billingRates.map((rate) => (
+                            <SelectItem key={rate.id} value={rate.id}>
+                              <div className="flex items-center gap-2">
+                                {rate.type === 'lawyer' ? (
+                                  <User className="h-3 w-3" />
+                                ) : rate.type === 'assistant' ? (
+                                  <Users className="h-3 w-3" />
+                                ) : (
+                                  <Building2 className="h-3 w-3" />
+                                )}
+                                <span>{rate.name}</span>
+                                <span className="text-muted-foreground">
+                                  ({new Intl.NumberFormat('en-US', { style: 'currency', currency: rate.currency }).format(rate.hourlyRate)}/hr)
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        min="0.25"
+                        step="0.25"
+                        placeholder="Hours"
+                        value={chargeHours}
+                        onChange={(e) => setChargeHours(e.target.value)}
+                      />
+                    </div>
+                    <Input
+                      placeholder="Description (optional)"
+                      value={chargeDescription}
+                      onChange={(e) => setChargeDescription(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCharge();
+                        }
+                      }}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleAddCharge}
+                      disabled={!selectedRateId || !chargeHours || parseFloat(chargeHours) <= 0}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Charge
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

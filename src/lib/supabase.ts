@@ -151,3 +151,87 @@ export async function getFileUrl(bucket: string, path: string) {
 
   return data.publicUrl;
 }
+
+// Billing rate types
+export type BillingRateType = 'lawyer' | 'assistant' | 'vendor';
+
+export interface BillingRate {
+  id: string;
+  name: string;
+  type: BillingRateType;
+  hourlyRate: number;
+  currency: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Helper functions for billing rates (using localStorage for now)
+const BILLING_RATES_KEY = 'ordolex_billing_rates';
+
+const SAMPLE_BILLING_RATES: Omit<BillingRate, 'id' | 'createdAt' | 'updatedAt'>[] = [
+  { name: 'James Walker', type: 'lawyer', hourlyRate: 350, currency: 'USD', email: 'j.walker@lawfirm.com', phone: '+1 (555) 100-2001', notes: 'Senior partner, specializes in family law', isActive: true },
+  { name: 'Emily Chen', type: 'lawyer', hourlyRate: 275, currency: 'USD', email: 'e.chen@lawfirm.com', phone: '+1 (555) 100-2002', notes: 'Associate attorney, corporate & real estate', isActive: true },
+  { name: 'Maria Lopez', type: 'assistant', hourlyRate: 120, currency: 'USD', email: 'm.lopez@lawfirm.com', phone: '+1 (555) 100-2003', notes: 'Paralegal, intake coordination', isActive: true },
+  { name: 'David Kim', type: 'assistant', hourlyRate: 95, currency: 'USD', email: 'd.kim@lawfirm.com', phone: '+1 (555) 100-2004', notes: 'Legal assistant, document preparation', isActive: true },
+  { name: 'Pacific Court Reporting', type: 'vendor', hourlyRate: 200, currency: 'USD', email: 'billing@pacificcourt.com', phone: '+1 (555) 300-4001', notes: 'Court reporting & transcription services', isActive: true },
+  { name: 'LegalTranslate Inc.', type: 'vendor', hourlyRate: 150, currency: 'USD', email: 'invoices@legaltranslate.com', phone: '+1 (555) 300-4002', notes: 'Translation & interpretation services', isActive: true },
+];
+
+function seedSampleRates(): BillingRate[] {
+  const now = new Date().toISOString();
+  const rates: BillingRate[] = SAMPLE_BILLING_RATES.map((r, i) => ({
+    ...r,
+    id: `rate-sample-${i + 1}`,
+    createdAt: now,
+    updatedAt: now,
+  }));
+  localStorage.setItem(BILLING_RATES_KEY, JSON.stringify(rates));
+  return rates;
+}
+
+export function getBillingRates(): BillingRate[] {
+  if (typeof window === 'undefined') return [];
+  const stored = localStorage.getItem(BILLING_RATES_KEY);
+  if (stored) return JSON.parse(stored);
+  // Seed sample data on first load
+  return seedSampleRates();
+}
+
+export function saveBillingRate(rate: Omit<BillingRate, 'id' | 'createdAt' | 'updatedAt'>): BillingRate {
+  const rates = getBillingRates();
+  const newRate: BillingRate = {
+    ...rate,
+    id: `rate-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  rates.push(newRate);
+  localStorage.setItem(BILLING_RATES_KEY, JSON.stringify(rates));
+  return newRate;
+}
+
+export function updateBillingRate(id: string, updates: Partial<Omit<BillingRate, 'id' | 'createdAt'>>): BillingRate | null {
+  const rates = getBillingRates();
+  const index = rates.findIndex(r => r.id === id);
+  if (index === -1) return null;
+
+  rates[index] = {
+    ...rates[index],
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(BILLING_RATES_KEY, JSON.stringify(rates));
+  return rates[index];
+}
+
+export function deleteBillingRate(id: string): boolean {
+  const rates = getBillingRates();
+  const filtered = rates.filter(r => r.id !== id);
+  if (filtered.length === rates.length) return false;
+  localStorage.setItem(BILLING_RATES_KEY, JSON.stringify(filtered));
+  return true;
+}
